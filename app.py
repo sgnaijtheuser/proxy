@@ -1,11 +1,11 @@
 # ================================================
 # OpenRouter Reverse Proxy - 生产部署版本 (Render)
+# 支持超长 Conversation History + 自动总结
 # ================================================
 
 import json
 import requests
 import time
-import re
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
@@ -15,6 +15,11 @@ CORS(app)
 # ================== 配置参数 ==================
 model = "Use Openrouter website setting"
 auto_trim = True
+
+# ================== 长上下文 + 总结配置 ==================
+MAX_CONTEXT_TOKENS = 200000      # MiMo Flash V2 推荐 180k-220k，DeepSeek V3.2 推荐 130k
+KEEP_RECENT_TOKENS = 14000       # 保留最近对话量（建议 12k-18k）
+SUMMARY_EVERY_TOKENS = 80000     # 每积累多少 tokens 就做一次总结
 
 # Advance settings
 min_p = 0.74
@@ -44,23 +49,102 @@ def trim_to_end_sentence(input_str, include_newline=False):
 def autoTrim(text):
     return trim_to_end_sentence(text)
 
-# ================== 路由 ==================
+def estimate_tokens(messages):
+    return sum(len(str(msg.get("content", ""))) // 4 + 20 for msg in messages)
+
+# ================== 自动总结旧历史 ==================
+def summarize_old_messages(old_messages):
+    if len(old_messages) < 3:
+        return None
+    
+    summary_prompt = {
+        "role": "system",
+        "content": "You are a professional conversation summarizer. Summarize the following chat history into a concise, coherent memory (maximum 800 tokens). Focus on key events, character relationships, important facts, personality traits shown, and story progress. Write in third person. Do not add new information."
+    }
+    
+    user_content = "Summarize this conversation history:\n\n" + "\n".join(
+        f"{msg['role']}: {msg['content']}" for msg in old_messages
+    )
+    
+    try:
+        api_key = "Bearer " + "sk-or-..."  # 此处不需要填真实key，后面会复用请求头的key
+        # 实际使用请求头的key
+        # 这里先构造
+        summary_response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "",   # 后面会覆盖
+                "HTTP-Referer": "https://janitorai.com/",
+            },
+            json={
+                "model": "deepseek/deepseek-chat",   # 用便宜快速的模型做总结
+                "messages": [summary_prompt, {"role": "user", "content": user_content}],
+                "max_tokens": 800,
+                "temperature": 0.7
+            }
+        )
+        
+        if summary_response.status_code == 200:
+            summary_text = summary_response.json()["choices"][0]["message"]["content"]
+            return {
+                "role": "system",
+                "content": f"[MEMORY SUMMARY]\n{summary_text}\n\n[Continue the story from the latest messages]"
+            }
+    except:
+        pass
+    return None
+
+# ================== 历史处理主函数 ==================
+def compress_history(messages):
+    if len(messages) <= 6:
+        return messages
+    
+    total_tokens = estimate_tokens(messages)
+    
+    if total_tokens <= MAX_CONTEXT_TOKENS:
+        return messages
+    
+    print(f"History too long: \~{total_tokens} tokens → auto summarizing...")
+    
+    # 分离 System Prompt
+    system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+    chat_messages = messages[1:] if system_msg else messages
+    
+    # 保留最近消息
+    recent_messages = []
+    current_tokens = 0
+    for msg in reversed(chat_messages):
+        msg_tokens = len(str(msg.get("content", ""))) // 4 + 20
+        if current_tokens + msg_tokens > KEEP_RECENT_TOKENS:
+            break
+        recent_messages.append(msg)
+        current_tokens += msg_tokens
+    recent_messages.reverse()
+    
+    # 总结旧消息
+    old_messages = chat_messages[:-len(recent_messages)] if len(recent_messages) < len(chat_messages) else []
+    summary = summarize_old_messages(old_messages) if old_messages else None
+    
+    # 重新组合
+    new_messages = []
+    if system_msg:
+        new_messages.append(system_msg)
+    if summary:
+        new_messages.append(summary)
+    new_messages.extend(recent_messages)
+    
+    print(f"Compressed with summary: {len(messages)} → {len(new_messages)} messages")
+    return new_messages
+
+# ================== 路由和请求处理 ==================
 @app.route('/')
 def default():
     return {"status": "online", "model": model}
 
 @app.route('/models')
 def modelcheck():
-    return {
-        "object": "list",
-        "data": [{
-            "id": model,
-            "object": "model",
-            "created": 1685474247,
-            "owned_by": "openai",
-            "root": model,
-        }]
-    }
+    return {"object": "list", "data": [{"id": model, "object": "model", "created": 1685474247, "owned_by": "openai"}]}
 
 def genstream(config):
     try:
@@ -79,20 +163,13 @@ def normalOperation(req):
     if not req.json:
         return jsonify(error=True), 400
 
-    # 复制一份避免修改原请求
     data = req.json.copy()
     if "stream" not in data:
         data['stream'] = False
 
-    # TEST 模式
-    if data.get("messages", [{}])[0].get("content") == "Just say TEST":
-        return {"id": "test", "choices": [{"message": {"content": "TEST"}}]}
-
-    api_url = 'https://openrouter.ai/api/v1'
-    api_key = req.headers.get('Authorization', '').strip()
-
-    if not api_key:
-        return jsonify(error="No API key"), 401
+    # 关键：自动总结 + 压缩历史
+    if "messages" in data:
+        data["messages"] = compress_history(data["messages"])
 
     # Prefill 处理
     if prefill_enabled and data.get("messages"):
@@ -102,13 +179,17 @@ def normalOperation(req):
         else:
             messages[-1]["content"] += "\n" + assistant_prefill
 
+    api_url = 'https://openrouter.ai/api/v1'
+    api_key = req.headers.get('Authorization', '').strip()
+
+    if not api_key:
+        return jsonify(error="No API key"), 401
+
     req_model = data.get("model")
     newmodel = None if req_model in ["openrouter/auto", "auto", None] else req_model
 
-    endpoint_url = f'{api_url}/chat/completions'
-
     config = {
-        'url': endpoint_url,
+        'url': f'{api_url}/chat/completions',
         'headers': {
             'Content-Type': 'application/json',
             'Authorization': api_key,
@@ -117,8 +198,8 @@ def normalOperation(req):
         'json': {
             'messages': data.get('messages'),
             'model': newmodel,
-            'temperature': data.get('temperature', 0.9),
-            'max_tokens': data.get('max_tokens', 2048),
+            'temperature': data.get('temperature', 0.85),
+            'max_tokens': data.get('max_tokens', 4096),
             'stream': data.get('stream', False),
             'repetition_penalty': data.get('repetition_penalty', repetition_penalty),
             'presence_penalty': data.get('presence_penalty', presence_penalty),
