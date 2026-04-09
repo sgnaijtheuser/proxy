@@ -17,8 +17,8 @@ model = "Use Openrouter website setting"
 auto_trim = True
 
 # ================== 长上下文 + 总结配置 ==================
-MAX_CONTEXT_TOKENS = 200000      # MiMo Flash V2 推荐 180k-220k，DeepSeek V3.2 推荐 130k
-KEEP_RECENT_TOKENS = 18000       # 保留最近对话量（建议 12k-18k）
+MAX_CONTEXT_TOKENS = 300000      # MiMo Flash V2 推荐 180k-220k，DeepSeek V3.2 推荐 130k
+KEEP_RECENT_TOKENS = 20000       # 保留最近对话量（建议 12k-18k）
 SUMMARY_EVERY_TOKENS = 80000     # 每积累多少 tokens 就做一次总结
 
 # Advance settings
@@ -59,7 +59,7 @@ def summarize_old_messages(old_messages):
     
     summary_prompt = {
         "role": "system",
-        "content": "You are a professional conversation summarizer. Summarize the following chat history into a concise, coherent memory (maximum 800 tokens). Focus on key events, character relationships, important facts, personality traits shown, and story progress. Write in third person. Do not add new information."
+        "content": "You are a professional conversation summarizer. Summarize the following chat history into a concise, coherent memory. Focus on key events, character conversations, important facts, personality traits shown, and story progress. Write in third person. Do not add new information."
     }
     
     user_content = "Summarize this conversation history:\n\n" + "\n".join(
