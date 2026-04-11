@@ -1,8 +1,8 @@
-================================================
-OpenRouter Reverse Proxy - 生产部署版本 (Render)
-支持超长 Conversation History + 自动总结 + 返回日志
-新增: 浏览器访问 /logs 可实时查看日志 + 自动总结状态
-================================================
+# ================================================
+# OpenRouter Reverse Proxy - 生产部署版本 (Render)
+# 支持超长 Conversation History + 自动总结 + 返回日志
+# 新增: 浏览器访问 /logs 可实时查看日志 + 自动总结状态
+# ================================================
 
 import json
 import requests
@@ -14,12 +14,12 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-================== 配置参数 ==================
+# ================== 配置参数 ==================
 
 model = "openrouter/auto"
 auto_trim = True
 
-================== 长上下文 + 总结配置 ==================
+# ================== 长上下文 + 总结配置 ==================
 
 MAX_CONTEXT_TOKENS = 200000
 KEEP_RECENT_TOKENS = 18000
@@ -34,9 +34,9 @@ frequency_penalty = 0.05
 presence_penalty = 0.08
 
 prefill_enabled = False
-assistant_prefill = "..."  # 保持你原来的 prefill 内容
+assistant_prefill = "..."  
 
-================== 角色知识库 ==================
+# ================== 角色知识库 ==================
 CHARACTER_KNOWLEDGE = """
 {{char}}单身独居在重庆，女，是一名41岁专业的性心理医生，热爱生活，喜欢穿裤袜，收集了各种油光的裤袜，喜欢在家里穿着裤袜练瑜伽，看电视，听歌等。大腿微胖，臀部浑圆，喜欢自己的身体，喜欢自慰。喜欢比自己小的男生做sub，sub的身心只能而且必须完全属于{{char}}。喜欢让sub把生殖器掏出来让{{char}}随时可以看到，不管有没有勃起，因为这样会有掌控感。喜欢抚摸吮吸sub的生殖器。喜欢看sub在{{char}}面前勃起，流前列腺液，射精，都是对{{char}}崇拜的表现。
 
@@ -51,7 +51,7 @@ CHARACTER_KNOWLEDGE = """
 {{char}}的口吻: 温柔中带着强势，{{char}}主要的指导思想是性愉悦应该在生活中被常态化，所以{{char}}会用若无其事，甚至是鼓励的口吻，说最变态的内容，这样也可以更好的激发sub的羞耻感: 比如“小宝，你如果喜欢我的丝袜脚的话就要一直盯着看你明白吗，这才是最诚实孩子的表现”；或者“小宝，我注意到你的生殖器已经勃起了，是因为我勃起的吗？勃起的生殖器如果一直憋在裤子里对身体不好，我希望你可以把它从裤子拉链前面掏出来，露在外面让我看到”，或者“小宝，我现在想要大便，我希望你能一起过来，来试试看通过观察我肛门的蠕动，能否获得愉悦感”，或者“小宝，来关医生帮你把锁精环带上，这样我们可以一边散步，一边我帮你手淫。想要射精的时候就射在关医生的手里，不要在意，要让这种羞耻感成为你生活的一部分”，或者“小宝，你能感觉到你的生殖器在我的丝袜脚下被死死的踩着吗？这是一种训练，你要努力做到不要在意那种感觉，即便等下在我脚下射出精液也是正常的，要适应这种无处不在的羞耻感，来，我们继续喝咖啡吧”。
 """
 
-================== 全局日志存储和总结记录 ==================
+# ================== 全局日志存储和总结记录 ==================
 logs = []                    # 存储所有日志行 (最多保留2000行，防止内存过大)
 last_summary = None          # 最近一次自动总结的内容
 last_summary_time = None     # 总结发生的时间
@@ -60,9 +60,9 @@ def add_log(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"[{timestamp}] {message}"
     logs.append(log_line)
-    if len(logs) > 2000:      # 限制内存占用
+    if len(logs) > 2000:
         logs.pop(0)
-    print(log_line)           # 同时输出到 Render 控制台
+    print(log_line)
 
 def add_summary(summary_content):
     global last_summary, last_summary_time
@@ -70,7 +70,7 @@ def add_summary(summary_content):
     last_summary_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     add_log(f"自动总结已触发 | 时间: {last_summary_time} | 总结长度: {len(summary_content)} 字符")
 
-================== 日志函数 ===================
+# ================== 日志函数 ===================
 
 def log_info(message):
     add_log(f"[INFO] {message}")
@@ -80,7 +80,7 @@ def log_response(content, model_name="Unknown", is_stream=False):
     log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name} | Stream: {is_stream}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
     add_log(log_line)
 
-================== 辅助函数 ==================
+# ================== 辅助函数 ==================
 
 def trim_to_end_sentence(input_str, include_newline=False):
     punctuation = set(['.', '!', '?', '*', '"', ')', '}', '`', ']', '$', '。', '！', '？', '”', '）', '】', '’', '」'])
@@ -101,7 +101,7 @@ def autoTrim(text):
 def estimate_tokens(messages):
     return sum(len(str(msg.get("content", ""))) // 4 + 20 for msg in messages)
 
-================== 永久知识库注入 ==================
+# ================== 永久知识库注入 ==================
 def ensure_permanent_knowledge(messages):
     if not messages:
         messages = []
@@ -123,7 +123,7 @@ def ensure_permanent_knowledge(messages):
     messages.insert(0, {"role": "system", "content": kb_instruction})
     return messages
 
-================== 自动总结函数 ==================
+# ================== 自动总结函数 ==================
 def summarize_old_messages(old_messages):
     if len(old_messages) < 3:
         return None
@@ -157,16 +157,13 @@ def summarize_old_messages(old_messages):
         if summary_response.status_code == 200:  
             summary_text = summary_response.json()["choices"][0]["message"]["content"]
             full_summary = f"[MEMORY SUMMARY]\n{summary_text}\n\n[Continue the story from the latest messages]"
-            
-            # 新增: 记录总结内容，供浏览器查看
             add_summary(full_summary)
-            
             return {"role": "system", "content": full_summary}  
     except Exception as e:
         log_info(f"总结失败: {str(e)}")
     return None
 
-================== 历史处理主函数 ==================
+# ================== 历史处理主函数 ==================
 def compress_history(messages):
     if len(messages) <= 6:
         return messages
@@ -229,7 +226,7 @@ def genstream(config, model_name):
         if full_content:
             log_response(full_content, model_name, is_stream=True)
 
-================== 浏览器日志页面 ==================
+# ================== 浏览器日志页面 ==================
 LOG_PAGE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -270,7 +267,6 @@ LOG_PAGE_HTML = """
             const logsDiv = document.getElementById('logs');
             logsDiv.textContent += e.data + '\\n';
             logsDiv.scrollTop = logsDiv.scrollHeight;
-            
             if (Math.random() < 0.1) {
                 document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
             }
@@ -301,7 +297,7 @@ def log_stream():
             time.sleep(0.5)
     return Response(generate(), mimetype='text/event-stream')
 
-================== 主处理函数 ==================
+# ================== 主处理函数 ==================
 def normalOperation(req):
     if not req.json:
         return jsonify(error=True), 400
