@@ -8,7 +8,7 @@
 import json
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
@@ -40,12 +40,16 @@ prefill_enabled = False
 assistant_prefill = "..."  
 
 # ================== 外部角色知识库（Google Docs） ==================
-# 【重要】请把下面这行改成你自己的 Google Docs 发布链接
+# 【重要】请把下面这行改成你自己的 Google Docs 发布到网页 的链接（必须是 /pub 结尾）
 GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/1A5XHCIX1dxr5ZWMKk5aL8IVb6aXPP067Q9r8ghx64rc/edit?usp=drivesdk"
+
+# 记录最后一次成功读取 Google Docs 的新加坡时间
+last_google_doc_load_time = None
 
 @lru_cache(maxsize=1)
 def get_character_knowledge():
     """从 Google Docs 获取最新角色资料，每5分钟自动更新一次"""
+    global last_google_doc_load_time
     try:
         url = GOOGLE_DOC_PUB_URL.rstrip('/') + "?embedded=true"
         response = requests.get(url, timeout=15)
@@ -54,33 +58,36 @@ def get_character_knowledge():
         soup = BeautifulSoup(response.text, 'html.parser')
         text = soup.get_text(separator='\n', strip=True)
         
-        # 清理多余空行
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         clean_text = '\n'.join(lines)
         
-        print(f"[INFO] 成功从 Google Docs 加载知识库，长度: {len(clean_text)} 字符")
+        # 记录新加坡时间（精确到分钟）
+        sg_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+        last_google_doc_load_time = sg_time
+        
+        print(f"[INFO] 成功从 Google Docs 加载知识库，长度: {len(clean_text)} 字符 | 新加坡时间: {sg_time}")
         return clean_text
     except Exception as e:
         print(f"[ERROR] 从 Google Docs 加载知识库失败: {str(e)}")
         return "【知识库加载失败，请检查 Google Doc 链接是否正确且已发布为公开】"
 
 # ================== 全局日志存储和总结记录 ==================
-logs = []                    # 存储所有日志行 (最多保留2000行，防止内存过大)
-last_summary = None          # 最近一次自动总结的内容
-last_summary_time = None     # 总结发生的时间
+logs = []                    # 现在只保留最新 100 条日志
+last_summary = None
+last_summary_time = None
 
 def add_log(message):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"[{timestamp}] {message}"
     logs.append(log_line)
-    if len(logs) > 2000:
+    if len(logs) > 100:      # 只保留最新 100 条
         logs.pop(0)
     print(log_line)
 
 def add_summary(summary_content):
     global last_summary, last_summary_time
     last_summary = summary_content
-    last_summary_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    last_summary_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     add_log(f"自动总结已触发 | 时间: {last_summary_time} | 总结长度: {len(summary_content)} 字符")
 
 # ================== 日志函数 ===================
@@ -89,7 +96,7 @@ def log_info(message):
     add_log(f"[INFO] {message}")
 
 def log_response(content, model_name="Unknown", is_stream=False):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name} | Stream: {is_stream}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
     add_log(log_line)
 
@@ -114,7 +121,7 @@ def autoTrim(text):
 def estimate_tokens(messages):
     return sum(len(str(msg.get("content", ""))) // 4 + 20 for msg in messages)
 
-# ================== 永久知识库注入（使用 Google Docs） ==================
+# ================== 永久知识库注入 ==================
 def ensure_permanent_knowledge(messages):
     if not messages:
         messages = []
@@ -239,7 +246,7 @@ def genstream(config, model_name):
         if full_content:
             log_response(full_content, model_name, is_stream=True)
 
-# ================== 浏览器日志页面 ==================
+# ================== 浏览器日志页面（加强版） ==================
 LOG_PAGE_HTML = """
 <!DOCTYPE html>
 <html>
@@ -250,14 +257,19 @@ LOG_PAGE_HTML = """
         body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
         pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; }
         .summary { background: #2d2d2d; padding: 15px; margin: 15px 0; border-left: 4px solid #007acc; }
-        .log-container { max-height: 80vh; overflow-y: auto; }
+        .info { background: #2d2d2d; padding: 12px; margin: 10px 0; border-left: 4px solid #28a745; }
+        .log-container { max-height: 75vh; overflow-y: auto; }
         h1 { color: #569cd6; }
     </style>
 </head>
 <body>
     <h1>Proxy 实时日志监控</h1>
-    <p>最后更新: <span id="time"></span> | <a href="#" onclick="location.reload()">刷新</a></p>
     
+    <div class="info">
+        <strong>Google Docs 最后读取时间 (新加坡时间):</strong> {{ last_google_doc_time }}<br>
+        <strong>最后更新:</strong> <span id="time"></span>
+    </div>
+
     <h2>最近自动总结状态</h2>
     <div class="summary">
         {% if last_summary %}
@@ -269,7 +281,7 @@ LOG_PAGE_HTML = """
         {% endif %}
     </div>
 
-    <h2>完整日志 (实时更新)</h2>
+    <h2>完整日志 (仅显示最新 100 条)</h2>
     <div class="log-container">
         <pre id="logs">{{ logs }}</pre>
     </div>
@@ -280,10 +292,14 @@ LOG_PAGE_HTML = """
             const logsDiv = document.getElementById('logs');
             logsDiv.textContent += e.data + '\\n';
             logsDiv.scrollTop = logsDiv.scrollHeight;
-            if (Math.random() < 0.1) {
+            
+            if (Math.random() < 0.15) {
                 document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
             }
         };
+        
+        // 页面加载时显示当前时间
+        document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
     </script>
 </body>
 </html>
@@ -291,11 +307,14 @@ LOG_PAGE_HTML = """
 
 @app.route('/logs')
 def show_logs():
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    last_google_time = last_google_doc_load_time if last_google_doc_load_time else "尚未读取"
+    
     return render_template_string(LOG_PAGE_HTML, 
-                                  logs='\n'.join(logs[-300:]),
+                                  logs='\n'.join(logs),           # 只显示最新100条
                                   last_summary=last_summary,
                                   last_summary_time=last_summary_time,
+                                  last_google_doc_time=last_google_time,
                                   current_time=current_time)
 
 @app.route('/logs/stream')
