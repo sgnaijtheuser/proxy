@@ -41,7 +41,7 @@ assistant_prefill = "..."
 
 # ================== 外部角色知识库（Google Docs） ==================
 # 【重要】请把下面这行改成你自己的 Google Docs 发布链接
-GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/你的文档ID/pub"  
+GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/1A5XHCIX1dxr5ZWMKk5aL8IVb6aXPP067Q9r8ghx64rc/edit?usp=drivesdk"
 
 @lru_cache(maxsize=1)
 def get_character_knowledge():
