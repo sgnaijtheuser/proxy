@@ -14,7 +14,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ================== 配置参数 ==================
-model = "Use Openrouter website setting"
+model = "openrouter/auto"
 auto_trim = True
 
 # ================== 长上下文 + 总结配置 ==================
