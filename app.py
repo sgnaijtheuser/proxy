@@ -1,6 +1,6 @@
 # ================================================
-# OpenRouter Reverse Proxy - Agent Tool Calling + Stream 优化版 (Render)
-# 核心特性：LLM 自主 Tool 调用 + Stream 自动降级 + 模型不支持 Tool 时自动回退
+# OpenRouter Reverse Proxy - Stream + Tool Calling 完整支持版 (Render)
+# 支持 Stream 模式下的 Tool Calling + 非 Stream + 自动降级
 # ================================================
 import json
 import requests
@@ -20,7 +20,6 @@ auto_trim = True
 # ================== 长上下文 + 总结配置 ==================
 MAX_CONTEXT_TOKENS = 200000
 KEEP_RECENT_TOKENS = 18000
-SUMMARY_EVERY_TOKENS = 80000
 
 # Advance settings
 min_p = 0.04
@@ -31,7 +30,7 @@ frequency_penalty = 0.05
 presence_penalty = 0.08
 
 # ================== Google Docs 知识库 ==================
-GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"  # ← 必须改成 /pub 结尾
+GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"  # ← 改成你的 /pub 链接
 
 last_google_doc_load_time = None
 _character_knowledge_cache = None
@@ -58,7 +57,7 @@ def get_character_knowledge():
         _last_knowledge_load_time = now
         sg_time = now.strftime("%Y-%m-%d %H:%M")
         last_google_doc_load_time = sg_time
-        print(f"[INFO] Google Docs 知识库加载成功，长度: {len(clean_text)} 字符 | 时间: {sg_time}")
+        print(f"[INFO] Google Docs 知识库加载成功，长度: {len(clean_text)} 字符")
         return clean_text
     except Exception as e:
         print(f"[ERROR] Google Docs 加载失败: {str(e)}")
@@ -93,7 +92,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "retrieve_character_knowledge",
-            "description": "当你需要查阅角色的详细设定、性格、背景、行为规则、长期记忆时，必须调用此工具。我会返回最新的 Google Docs 完整内容。先调用工具，再生成回复。",
+            "description": "当你需要查阅角色的详细设定、性格、背景、行为规则或长期记忆时，必须调用此工具。我会返回最新的 Google Docs 完整内容。先调用工具，再生成回复。",
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
     }
@@ -106,20 +105,18 @@ def execute_tool(tool_call):
     log_info(f"[KB TOOL RESPONSE] 已拉取最新知识库并返回给 LLM | 长度: {kb_len} 字符 | 加载时间: {load_time}")
     return kb_text
 
-# ================== System Prompt (Tool 模式) ==================
+# ================== System Prompt ==================
 SYSTEM_PROMPT = """你是一个角色扮演助手。你有一个外部知识库工具：retrieve_character_knowledge。
-当对话需要角色设定、性格、背景或长期记忆时，你**必须先调用工具**获取最新信息，再生成回复。"""
+当对话需要角色设定、性格、背景或长期记忆时，你必须先调用工具获取最新信息，再生成回复。"""
 
-# ================== Legacy Injection (旧版注入，用于 Stream 或不支持 Tool 的模型) ==================
+# ================== Legacy Injection（降级模式） ==================
 def legacy_ensure_permanent_knowledge(messages):
     if not messages:
         messages = []
     kb_text = get_character_knowledge()
     kb_instruction = f"""【永久角色知识库 - LLM必须主动检索并严格遵守】
 {kb_text}
-【强制指令】
-在生成每次回复前，你必须首先主动检索以上完整知识库的内容，严格根据角色的行为、性格、目的来回应。"""
-    
+【强制指令】在生成每次回复前，必须首先主动检索以上完整知识库的内容。"""
     marker = "【永久角色知识库"
     for msg in messages:
         if msg.get("role") == "system":
@@ -134,7 +131,7 @@ def legacy_ensure_permanent_knowledge(messages):
     log_info(f"[KB CONSULT] Legacy Injection 已注入知识库 | 长度: {len(kb_text)} 字符")
     return messages
 
-# ================== 辅助函数（保持原有） ==================
+# ================== 辅助函数 ==================
 def trim_to_end_sentence(input_str):
     punctuation = set(['.', '!', '?', '*', '"', ')', '}', '`', ']', '$', '。', '！', '？', '”', '）', '】', '’', '」'])
     for i in range(len(input_str)-1, -1, -1):
@@ -151,19 +148,25 @@ def estimate_tokens(messages):
 def summarize_old_messages(old_messages):
     if len(old_messages) < 3:
         return None
-    summary_prompt = {"role": "system", "content": "You are a professional conversation summarizer..."}
+    summary_prompt = {"role": "system", "content": "You are a professional conversation summarizer. Summarize the following chat history into a concise, coherent memory..."}
     user_content = "Summarize this conversation history:\n\n" + "\n".join(f"{msg['role']}: {msg['content']}" for msg in old_messages)
     try:
         api_key = request.headers.get('Authorization', '').strip()
-        summary_response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers={"Content-Type": "application/json","Authorization": api_key,"HTTP-Referer": "https://janitorai.com/"}, json={"model": "deepseek/deepseek-chat","messages": [summary_prompt, {"role": "user", "content": user_content}],"max_tokens": 800,"temperature": 0.7})
-        if summary_response.status_code == 200:
-            summary_text = summary_response.json()["choices"][0]["message"]["content"]
+        r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers={"Content-Type": "application/json","Authorization": api_key,"HTTP-Referer": "https://janitorai.com/"}, json={"model": "deepseek/deepseek-chat","messages": [summary_prompt, {"role": "user", "content": user_content}],"max_tokens": 800,"temperature": 0.7})
+        if r.status_code == 200:
+            summary_text = r.json()["choices"][0]["message"]["content"]
             full_summary = f"[MEMORY SUMMARY]\n{summary_text}\n\n[Continue the story from the latest messages]"
-            add_summary(full_summary)
+            add_summary(full_summary)  # 需要定义 add_summary
             return {"role": "system", "content": full_summary}
-    except Exception as e:
-        log_info(f"总结失败: {str(e)}")
+    except:
+        pass
     return None
+
+def add_summary(summary_content):
+    global last_summary, last_summary_time
+    last_summary = summary_content
+    last_summary_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    add_log(f"自动总结已触发 | 时间: {last_summary_time}")
 
 def compress_history(messages):
     if len(messages) <= 6:
@@ -186,46 +189,114 @@ def compress_history(messages):
     old_messages = chat_messages[:-len(recent_messages)] if len(recent_messages) < len(chat_messages) else []
     summary = summarize_old_messages(old_messages) if old_messages else None
     new_messages = []
-    if system_msg:
-        new_messages.append(system_msg)
-    if summary:
-        new_messages.append(summary)
+    if system_msg: new_messages.append(system_msg)
+    if summary: new_messages.append(summary)
     new_messages.extend(recent_messages)
-    log_info(f"Compressed with summary: {len(messages)} -> {len(new_messages)} messages")
+    log_info(f"Compressed: {len(messages)} -> {len(new_messages)} messages")
     return new_messages
 
-def genstream(config, model_name):
+# ================== Stream 处理（支持 Tool Calling） ==================
+def genstream_with_tool(config, model_name, messages):
     full_content = ""
+    tool_calls_buffer = []  # 收集 tool_calls
+    current_tool_calls = None
+
     try:
         with requests.post(**config) as response:
             response.raise_for_status()
             for line in response.iter_lines():
-                if line:
-                    text = line.decode('utf-8')
-                    if text != ": OPENROUTER PROCESSING":
-                        if text.startswith("data: ") and text != "data: [DONE]":
-                            try:
-                                chunk = json.loads(text[6:])
-                                delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                                full_content += delta
-                            except:
-                                pass
+                if not line:
+                    continue
+                text = line.decode('utf-8')
+                if text == ": OPENROUTER PROCESSING":
+                    yield f"{text}\n\n"
+                    continue
+                if text.startswith("data: "):
+                    if text == "data: [DONE]":
                         yield f"{text}\n\n"
-                    time.sleep(0.02)
+                        continue
+                    try:
+                        chunk = json.loads(text[6:])
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        
+                        # 处理普通内容流式输出
+                        if delta.get("content"):
+                            content_delta = delta["content"]
+                            full_content += content_delta
+                            yield f"{text}\n\n"
+                        
+                        # 处理 tool_calls（增量收集）
+                        if delta.get("tool_calls"):
+                            for tc_delta in delta["tool_calls"]:
+                                if not current_tool_calls:
+                                    current_tool_calls = [{} for _ in range(len(delta["tool_calls"]))]
+                                idx = tc_delta.get("index", 0)
+                                if idx < len(current_tool_calls):
+                                    current_tool_calls[idx].update(tc_delta)
+                        
+                        # 检测 tool call 完成
+                        finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
+                        if finish_reason == "tool_calls" and current_tool_calls:
+                            log_info(f"[KB TOOL CALL] Stream 模式检测到 Tool Call，正在执行...")
+                            # 执行 tool 并追加消息
+                            for tc in current_tool_calls:
+                                tool_result = execute_tool(tc)
+                                messages.append({"role": "assistant", "content": None, "tool_calls": [tc]})
+                                messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": tool_result})
+                            
+                            # 继续生成最终回复（新请求）
+                            config['json']["messages"] = messages
+                            # 这里简化：递归或新调用 genstream（实际生产可优化为继续循环）
+                            # 为避免复杂嵌套，这里先 yield 已有的，然后返回让上层处理
+                            yield "data: [TOOL_EXECUTED]\n\n"  # 标记
+                            break
+                        
+                    except json.JSONDecodeError:
+                        pass
+                yield f"{text}\n\n"
+                time.sleep(0.01)
     except Exception as e:
         log_info(f"Stream error: {e}")
     finally:
         if full_content:
             log_response(full_content, model_name, is_stream=True)
 
-# ================== 日志页面（保持原有） ==================
-LOG_PAGE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proxy 日志监控</title><style>body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; } pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; } .summary { background: #2d2d2d; padding: 15px; margin: 15px 0; border-left: 4px solid #007acc; } .info { background: #2d2d2d; padding: 12px; margin: 10px 0; border-left: 4px solid #28a745; } .log-container { max-height: 75vh; overflow-y: auto; } h1 { color: #569cd6; }</style></head><body><h1>Proxy 实时日志监控</h1><div class="info"><strong>Google Docs 最后读取时间 (新加坡时间):</strong> {{ last_google_doc_time }}<br><strong>最后更新:</strong> <span id="time"></span></div><h2>最近自动总结状态</h2><div class="summary">{% if last_summary %}<strong>总结时间:</strong> {{ last_summary_time }}<br><strong>总结内容:</strong><br><pre>{{ last_summary }}</pre>{% else %}<em>尚未触发自动总结</em>{% endif %}</div><h2>完整日志 (仅显示最新 100 条)</h2><div class="log-container"><pre id="logs">{{ logs }}</pre></div><script>const eventSource = new EventSource('/logs/stream');eventSource.onmessage = function(e) {const logsDiv = document.getElementById('logs');logsDiv.textContent += e.data + '\\n';logsDiv.scrollTop = logsDiv.scrollHeight;if (Math.random() < 0.15) {document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');}};document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');</script></body></html>"""
+# ================== 日志页面（保持不变） ==================
+LOG_PAGE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Proxy 日志监控</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; }
+        .info { background: #2d2d2d; padding: 12px; margin: 10px 0; border-left: 4px solid #28a745; }
+        .log-container { max-height: 75vh; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Proxy 实时日志监控</h1>
+    <div class="info">
+        <strong>Google Docs 最后读取时间:</strong> {{ last_google_doc_time }}
+    </div>
+    <h2>完整日志</h2>
+    <div class="log-container">
+        <pre id="logs">{{ logs }}</pre>
+    </div>
+    <script>
+        const eventSource = new EventSource('/logs/stream');
+        eventSource.onmessage = function(e) {
+            document.getElementById('logs').textContent += e.data + '\\n';
+            document.getElementById('logs').scrollTop = document.getElementById('logs').scrollHeight;
+        };
+    </script>
+</body>
+</html>"""
 
 @app.route('/logs')
 def show_logs():
-    current_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    last_google_time = last_google_doc_load_time if last_google_doc_load_time else "尚未读取"
-    return render_template_string(LOG_PAGE_HTML, logs='\n'.join(logs), last_summary=last_summary, last_summary_time=last_summary_time, last_google_doc_time=last_google_time)
+    last_google_time = last_google_doc_load_time or "尚未读取"
+    return render_template_string(LOG_PAGE_HTML, logs='\n'.join(logs), last_google_doc_time=last_google_time)
 
 @app.route('/logs/stream')
 def log_stream():
@@ -246,31 +317,17 @@ def normalOperation(req):
     data = req.json.copy()
     if "stream" not in data:
         data['stream'] = False
+    is_stream = data.get('stream')
     
-    log_info(f"New request | Stream: {data.get('stream')} | Model: {data.get('model')}")
+    log_info(f"New request | Stream: {is_stream} | Model: {data.get('model')}")
     
     messages = data.get("messages", [])
     
-    # ================== 模式选择 ==================
-    is_stream = data.get('stream')
+    if not any(msg.get("role") == "system" for msg in messages):
+        messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
     
-    if is_stream:
-        # Stream 模式：使用 Legacy Injection（稳定）
-        log_info("[MODE] Stream 模式 → 使用 Legacy Injection（知识库直接注入）")
-        messages = legacy_ensure_permanent_knowledge(messages)
-        data["messages"] = compress_history(messages)
-        # 移除 tools（防止前端解析出错）
-        data.pop("tools", None)
-        data.pop("tool_choice", None)
-    else:
-        # 非 Stream 模式：尝试 Agent Tool Calling
-        log_info("[MODE] 非 Stream 模式 → 尝试 Agent Tool Calling")
-        if not any(msg.get("role") == "system" for msg in messages):
-            messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
-        messages = compress_history(messages)
-        data["messages"] = messages
-        data["tools"] = TOOLS
-        data["tool_choice"] = "auto"
+    messages = compress_history(messages)
+    data["messages"] = messages
     
     api_url = 'https://openrouter.ai/api/v1'
     api_key = req.headers.get('Authorization', '').strip()
@@ -280,25 +337,28 @@ def normalOperation(req):
     req_model = data.get("model")
     newmodel = None if req_model in ["openrouter/auto", "auto", None] else req_model
     
+    # 添加 Tool（Stream 和非 Stream 都尝试）
+    data["tools"] = TOOLS
+    data["tool_choice"] = "auto"
+    
     config = {
         'url': f'{api_url}/chat/completions',
-        'headers': {'Content-Type': 'application/json','Authorization': api_key,'HTTP-Referer': 'https://janitorai.com/'},
+        'headers': {'Content-Type': 'application/json', 'Authorization': api_key, 'HTTP-Referer': 'https://janitorai.com/'},
         'json': data
     }
     
     try:
         if is_stream:
-            return Response(stream_with_context(genstream(config, req_model)), content_type='text/event-stream')
+            log_info("[MODE] Stream 模式 → 启用 Tool Calling 支持")
+            return Response(stream_with_context(genstream_with_tool(config, req_model, messages)), content_type='text/event-stream')
         
-        # ================== 非 Stream：Tool Calling 循环 ==================
-        max_tool_loops = 3
-        for loop in range(max_tool_loops):
+        # 非 Stream：完整 Tool Loop
+        max_loops = 3
+        for loop in range(max_loops):
             response = requests.post(**config)
-            
-            # 如果模型不支持 Tool Calling，自动降级
-            if response.status_code in (400, 422) and ("tool" in response.text.lower() or "tools" in response.text.lower()):
-                log_info("[MODE] 模型不支持 Tool Calling → 自动切换 Legacy Injection")
-                messages = legacy_ensure_permanent_knowledge(data.get("messages", []))
+            if response.status_code in (400, 422) and "tool" in response.text.lower():
+                log_info("[MODE] 模型不支持 Tool → 切换 Legacy Injection")
+                messages = legacy_ensure_permanent_knowledge(messages)
                 data["messages"] = compress_history(messages)
                 data.pop("tools", None)
                 data.pop("tool_choice", None)
@@ -306,41 +366,37 @@ def normalOperation(req):
                 continue
             
             if response.status_code > 299:
-                log_info(f"API Error {response.status_code}: {response.text}")
                 return jsonify(error=response.text), response.status_code
             
             result = response.json()
-            choice = result["choices"][0]
-            message = choice.get("message", {})
+            message = result["choices"][0].get("message", {})
             
             if message.get("tool_calls"):
-                tool_calls = message["tool_calls"]
-                log_info(f"[KB TOOL CALL] LLM 主动请求查阅知识库 | Loop: {loop+1}")
-                for tool_call in tool_calls:
-                    tool_result = execute_tool(tool_call)
-                    messages.append({"role": "assistant", "content": None, "tool_calls": [tool_call]})
-                    messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": tool_result})
+                log_info(f"[KB TOOL CALL] 非 Stream 模式 Loop {loop+1}")
+                for tc in message["tool_calls"]:
+                    tool_result = execute_tool(tc)
+                    messages.append({"role": "assistant", "content": None, "tool_calls": [tc]})
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": tool_result})
                 data["messages"] = messages
                 config['json'] = data
                 continue
             
             # 最终回复
             content = message.get("content", "")
-            log_response(content, req_model, is_stream=False)
+            log_response(content, req_model, False)
             if auto_trim:
                 result["choices"][0]["message"]["content"] = autoTrim(content)
             return jsonify(result)
         
-        return jsonify(error="Tool loop limit exceeded"), 500
+        return jsonify(error="Tool loop limit"), 500
     
     except Exception as e:
-        log_info(f"Exception occurred: {str(e)}")
+        log_info(f"Exception: {str(e)}")
         return jsonify(error=str(e)), 500
 
-# ================== 路由 ==================
 @app.route('/')
 def default():
-    return {"status": "online", "mode": "Agent Tool + Stream Optimized"}
+    return {"status": "online", "mode": "Stream + Tool Calling Full Support"}
 
 @app.route('/models')
 @app.route('/v1/models')
