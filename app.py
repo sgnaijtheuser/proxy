@@ -262,11 +262,13 @@ def default():
     return {"status": "online", "model": model}
 
 @app.route('/models')
+@app.route('/v1/models')
 def modelcheck():
     return {"object": "list", "data": [{"id": model, "object": "model", "created": 1685474247, "owned_by": "openai"}]}
 
 @app.route("/", methods=["POST"])
 @app.route("/chat/completions", methods=["POST"])
+@app.route("/v1/chat/completions", methods=["POST"])
 def generate():
     return normalOperation(request)
 
