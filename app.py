@@ -1,8 +1,6 @@
 # ================================================
-# OpenRouter Reverse Proxy - 生产部署版本 (Render)
-# 支持超长 Conversation History + 自动总结 + 返回日志
-# 新增: 浏览器访问 /logs 可实时查看日志 + 自动总结状态
-# 新增: Google Docs 实时更新角色知识库（每次对话强制注入）
+# OpenRouter Reverse Proxy - Agent Tool Calling + Stream 优化版 (Render)
+# 核心特性：LLM 自主 Tool 调用 + Stream 自动降级 + 模型不支持 Tool 时自动回退
 # ================================================
 import json
 import requests
@@ -31,28 +29,18 @@ top_k = 80
 repetition_penalty = 1.10
 frequency_penalty = 0.05
 presence_penalty = 0.08
-prefill_enabled = False
-assistant_prefill = "..."
 
-# ================== 外部角色知识库（Google Docs） ==================
-# 【重要】必须改成发布为网页的链接（以 /pub 结尾）
-GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"
+# ================== Google Docs 知识库 ==================
+GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/1A5XHCIX1dxr5ZWMKk5aL8IVb6aXPP067Q9r8ghx64rc/pub"  # ← 必须改成 /pub 结尾
 
-# 记录最后一次成功读取 Google Docs 的新加坡时间
 last_google_doc_load_time = None
-
-# Google Docs 知识库缓存（支持5分钟自动刷新）
 _character_knowledge_cache = None
 _last_knowledge_load_time = None
 
-# ================== Google Docs 知识库函数 ==================
 def get_character_knowledge():
-    """从 Google Docs 获取最新角色资料，每5分钟自动更新一次 + 支持缓存回退"""
     global last_google_doc_load_time, _character_knowledge_cache, _last_knowledge_load_time
-    
     now = datetime.now(timezone(timedelta(hours=8)))
     
-    # 5分钟内直接返回缓存（提升性能）
     if (_character_knowledge_cache is not None and 
         _last_knowledge_load_time is not None and
         (now - _last_knowledge_load_time).total_seconds() < 300):
@@ -62,32 +50,24 @@ def get_character_knowledge():
         url = GOOGLE_DOC_PUB_URL.rstrip('/') + "?embedded=true"
         response = requests.get(url, timeout=15)
         response.raise_for_status()
-       
         soup = BeautifulSoup(response.text, 'html.parser')
         text = soup.get_text(separator='\n', strip=True)
-       
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        clean_text = '\n'.join(lines)
-       
-        # 更新缓存
+        clean_text = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
+        
         _character_knowledge_cache = clean_text
         _last_knowledge_load_time = now
-       
         sg_time = now.strftime("%Y-%m-%d %H:%M")
         last_google_doc_load_time = sg_time
-       
-        print(f"[INFO] 成功从 Google Docs 加载知识库，长度: {len(clean_text)} 字符 | 新加坡时间: {sg_time}")
+        print(f"[INFO] Google Docs 知识库加载成功，长度: {len(clean_text)} 字符 | 时间: {sg_time}")
         return clean_text
     except Exception as e:
-        print(f"[ERROR] 从 Google Docs 加载知识库失败: {str(e)}")
-        # 有缓存就用旧的，避免完全中断
-        if _character_knowledge_cache is not None:
-            print("[INFO] 使用上次缓存的知识库作为回退")
+        print(f"[ERROR] Google Docs 加载失败: {str(e)}")
+        if _character_knowledge_cache:
             return _character_knowledge_cache
-        return "【知识库加载失败，请检查 Google Doc 链接是否正确且已发布为公开】"
+        return "【知识库加载失败，请检查 /pub 链接】"
 
-# ================== 全局日志存储和总结记录 ==================
-logs = []  # 只保留最新 100 条日志
+# ================== 全局日志 ==================
+logs = []
 last_summary = None
 last_summary_time = None
 
@@ -99,13 +79,6 @@ def add_log(message):
         logs.pop(0)
     print(log_line)
 
-def add_summary(summary_content):
-    global last_summary, last_summary_time
-    last_summary = summary_content
-    last_summary_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    add_log(f"自动总结已触发 | 时间: {last_summary_time} | 总结长度: {len(summary_content)} 字符")
-
-# ================== 日志函数 ===================
 def log_info(message):
     add_log(f"[INFO] {message}")
 
@@ -114,19 +87,60 @@ def log_response(content, model_name="Unknown", is_stream=False):
     log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name} | Stream: {is_stream}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
     add_log(log_line)
 
-# ================== 辅助函数 ==================
-def trim_to_end_sentence(input_str, include_newline=False):
+# ================== Tool 定义 ==================
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "retrieve_character_knowledge",
+            "description": "当你需要查阅角色的详细设定、性格、背景、行为规则、长期记忆时，必须调用此工具。我会返回最新的 Google Docs 完整内容。先调用工具，再生成回复。",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    }
+]
+
+def execute_tool(tool_call):
+    kb_text = get_character_knowledge()
+    load_time = last_google_doc_load_time or "N/A"
+    kb_len = len(kb_text)
+    log_info(f"[KB TOOL RESPONSE] 已拉取最新知识库并返回给 LLM | 长度: {kb_len} 字符 | 加载时间: {load_time}")
+    return kb_text
+
+# ================== System Prompt (Tool 模式) ==================
+SYSTEM_PROMPT = """你是一个角色扮演助手。你有一个外部知识库工具：retrieve_character_knowledge。
+当对话需要角色设定、性格、背景或长期记忆时，你**必须先调用工具**获取最新信息，再生成回复。"""
+
+# ================== Legacy Injection (旧版注入，用于 Stream 或不支持 Tool 的模型) ==================
+def legacy_ensure_permanent_knowledge(messages):
+    if not messages:
+        messages = []
+    kb_text = get_character_knowledge()
+    kb_instruction = f"""【永久角色知识库 - LLM必须主动检索并严格遵守】
+{kb_text}
+【强制指令】
+在生成每次回复前，你必须首先主动检索以上完整知识库的内容，严格根据角色的行为、性格、目的来回应。"""
+    
+    marker = "【永久角色知识库"
+    for msg in messages:
+        if msg.get("role") == "system":
+            content = msg.get("content", "")
+            if marker in content:
+                parts = content.split(marker, 1)
+                msg["content"] = parts[0].strip() + "\n\n" + kb_instruction
+            else:
+                msg["content"] = content.strip() + "\n\n" + kb_instruction
+            return messages
+    messages.insert(0, {"role": "system", "content": kb_instruction})
+    log_info(f"[KB CONSULT] Legacy Injection 已注入知识库 | 长度: {len(kb_text)} 字符")
+    return messages
+
+# ================== 辅助函数（保持原有） ==================
+def trim_to_end_sentence(input_str):
     punctuation = set(['.', '!', '?', '*', '"', ')', '}', '`', ']', '$', '。', '！', '？', '”', '）', '】', '’', '」'])
-    last = -1
-    for i in range(len(input_str) - 1, -1, -1):
-        char = input_str[i]
-        if char in punctuation:
-            last = i - 1 if i > 0 and input_str[i - 1] in [' ', '\n'] else i
-            break
-        if include_newline and char == '\n':
-            last = i
-            break
-    return input_str[:last + 1].rstrip() if last != -1 else input_str.rstrip()
+    for i in range(len(input_str)-1, -1, -1):
+        if input_str[i] in punctuation:
+            return input_str[:i+1].rstrip()
+    return input_str.rstrip()
 
 def autoTrim(text):
     return trim_to_end_sentence(text)
@@ -134,77 +148,14 @@ def autoTrim(text):
 def estimate_tokens(messages):
     return sum(len(str(msg.get("content", ""))) // 4 + 20 for msg in messages)
 
-# ================== 永久知识库注入（核心修复） ==================
-def ensure_permanent_knowledge(messages):
-    """每次对话都强制注入最新Google Docs知识库，并在日志中记录"""
-    if not messages:
-        messages = []
-   
-    # 每次都获取最新知识库（会自动处理5分钟缓存）
-    kb_text = get_character_knowledge()
-    kb_instruction = f"""【永久角色知识库 - LLM必须主动检索并严格遵守】
-{get_character_knowledge()}
-【强制指令】
-在生成每次回复前，你必须首先主动检索以上完整知识库的内容，严格根据角色的行为、性格、目的来回应。
-绝不允许忘记、淡化或偏离这些设定。这就是你作为角色的长期稳定核心记忆，无论对话历史多长、如何压缩，都必须100%保持一致性。
-"""
-   
-    marker = "【永久角色知识库 - LLM必须主动检索并严格遵守】"
-    system_found = False
-   
-    for msg in messages:
-        if msg.get("role") == "system":
-            content = msg.get("content", "")
-            if marker in content:
-                # 替换为最新的知识库内容
-                parts = content.split(marker, 1)
-                before = parts[0].strip()
-                msg["content"] = before + "\n\n" + kb_instruction
-            else:
-                msg["content"] = content.strip() + "\n\n" + kb_instruction
-            system_found = True
-            break
-   
-    if not system_found:
-        messages.insert(0, {"role": "system", "content": kb_instruction})
-   
-    # ================== 关键日志：监控每次是否查阅资料 ==================
-    kb_len = len(kb_text)
-    load_time = last_google_doc_load_time or "N/A"
-    log_info(f"[KB CONSULT] 本次对话已强制注入最新Google Doc知识库 | 长度: {kb_len} 字符 | 最后加载: {load_time} | LLM必须主动检索")
-   
-    return messages
-
-# ================== 自动总结函数 ==================
 def summarize_old_messages(old_messages):
     if len(old_messages) < 3:
         return None
-    summary_prompt = {
-        "role": "system",
-        "content": "You are a professional conversation summarizer. Summarize the following chat history into a concise, coherent memory. Focus on key events, character conversations, important facts, personality traits shown, and story progress. Write in third person. Do not add new information."
-    }
-    
-    user_content = "Summarize this conversation history:\n\n" + "\n".join(
-        f"{msg['role']}: {msg['content']}" for msg in old_messages
-    )
-    
+    summary_prompt = {"role": "system", "content": "You are a professional conversation summarizer..."}
+    user_content = "Summarize this conversation history:\n\n" + "\n".join(f"{msg['role']}: {msg['content']}" for msg in old_messages)
     try:
         api_key = request.headers.get('Authorization', '').strip()
-        summary_response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": api_key,
-                "HTTP-Referer": "https://janitorai.com/",
-            },
-            json={
-                "model": "deepseek/deepseek-chat",
-                "messages": [summary_prompt, {"role": "user", "content": user_content}],
-                "max_tokens": 800,
-                "temperature": 0.7
-            }
-        )
-        
+        summary_response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers={"Content-Type": "application/json","Authorization": api_key,"HTTP-Referer": "https://janitorai.com/"}, json={"model": "deepseek/deepseek-chat","messages": [summary_prompt, {"role": "user", "content": user_content}],"max_tokens": 800,"temperature": 0.7})
         if summary_response.status_code == 200:
             summary_text = summary_response.json()["choices"][0]["message"]["content"]
             full_summary = f"[MEMORY SUMMARY]\n{summary_text}\n\n[Continue the story from the latest messages]"
@@ -214,20 +165,15 @@ def summarize_old_messages(old_messages):
         log_info(f"总结失败: {str(e)}")
     return None
 
-# ================== 历史处理主函数 ==================
 def compress_history(messages):
     if len(messages) <= 6:
         return messages
     total_tokens = estimate_tokens(messages)
-    
     if total_tokens <= MAX_CONTEXT_TOKENS:
         return messages
-    
     log_info(f"History too long: ~{total_tokens} tokens -> auto summarizing...")
-    
     system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
     chat_messages = messages[1:] if system_msg else messages
-    
     recent_messages = []
     current_tokens = 0
     for msg in reversed(chat_messages):
@@ -237,21 +183,17 @@ def compress_history(messages):
         recent_messages.append(msg)
         current_tokens += msg_tokens
     recent_messages.reverse()
-    
     old_messages = chat_messages[:-len(recent_messages)] if len(recent_messages) < len(chat_messages) else []
     summary = summarize_old_messages(old_messages) if old_messages else None
-    
     new_messages = []
     if system_msg:
         new_messages.append(system_msg)
     if summary:
         new_messages.append(summary)
     new_messages.extend(recent_messages)
-    
     log_info(f"Compressed with summary: {len(messages)} -> {len(new_messages)} messages")
     return new_messages
 
-# Stream 处理
 def genstream(config, model_name):
     full_content = ""
     try:
@@ -276,71 +218,14 @@ def genstream(config, model_name):
         if full_content:
             log_response(full_content, model_name, is_stream=True)
 
-# ================== 浏览器日志页面 ==================
-LOG_PAGE_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Proxy 日志监控</title>
-    <style>
-        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
-        pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; }
-        .summary { background: #2d2d2d; padding: 15px; margin: 15px 0; border-left: 4px solid #007acc; }
-        .info { background: #2d2d2d; padding: 12px; margin: 10px 0; border-left: 4px solid #28a745; }
-        .log-container { max-height: 75vh; overflow-y: auto; }
-        h1 { color: #569cd6; }
-    </style>
-</head>
-<body>
-    <h1>Proxy 实时日志监控</h1>
-   
-    <div class="info">
-        <strong>Google Docs 最后读取时间 (新加坡时间):</strong> {{ last_google_doc_time }}<br>
-        <strong>最后更新:</strong> <span id="time"></span>
-    </div>
-    <h2>最近自动总结状态</h2>
-    <div class="summary">
-        {% if last_summary %}
-            <strong>总结时间:</strong> {{ last_summary_time }}<br>
-            <strong>总结内容:</strong><br>
-            <pre>{{ last_summary }}</pre>
-        {% else %}
-            <em>尚未触发自动总结</em>
-        {% endif %}
-    </div>
-    <h2>完整日志 (仅显示最新 100 条)</h2>
-    <div class="log-container">
-        <pre id="logs">{{ logs }}</pre>
-    </div>
-    <script>
-        const eventSource = new EventSource('/logs/stream');
-        eventSource.onmessage = function(e) {
-            const logsDiv = document.getElementById('logs');
-            logsDiv.textContent += e.data + '\\n';
-            logsDiv.scrollTop = logsDiv.scrollHeight;
-           
-            if (Math.random() < 0.15) {
-                document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
-            }
-        };
-        document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
-    </script>
-</body>
-</html>
-"""
+# ================== 日志页面（保持原有） ==================
+LOG_PAGE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Proxy 日志监控</title><style>body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; } pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; } .summary { background: #2d2d2d; padding: 15px; margin: 15px 0; border-left: 4px solid #007acc; } .info { background: #2d2d2d; padding: 12px; margin: 10px 0; border-left: 4px solid #28a745; } .log-container { max-height: 75vh; overflow-y: auto; } h1 { color: #569cd6; }</style></head><body><h1>Proxy 实时日志监控</h1><div class="info"><strong>Google Docs 最后读取时间 (新加坡时间):</strong> {{ last_google_doc_time }}<br><strong>最后更新:</strong> <span id="time"></span></div><h2>最近自动总结状态</h2><div class="summary">{% if last_summary %}<strong>总结时间:</strong> {{ last_summary_time }}<br><strong>总结内容:</strong><br><pre>{{ last_summary }}</pre>{% else %}<em>尚未触发自动总结</em>{% endif %}</div><h2>完整日志 (仅显示最新 100 条)</h2><div class="log-container"><pre id="logs">{{ logs }}</pre></div><script>const eventSource = new EventSource('/logs/stream');eventSource.onmessage = function(e) {const logsDiv = document.getElementById('logs');logsDiv.textContent += e.data + '\\n';logsDiv.scrollTop = logsDiv.scrollHeight;if (Math.random() < 0.15) {document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');}};document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');</script></body></html>"""
 
 @app.route('/logs')
 def show_logs():
     current_time = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     last_google_time = last_google_doc_load_time if last_google_doc_load_time else "尚未读取"
-   
-    return render_template_string(LOG_PAGE_HTML,
-                                  logs='\n'.join(logs),
-                                  last_summary=last_summary,
-                                  last_summary_time=last_summary_time,
-                                  last_google_doc_time=last_google_time,
-                                  current_time=current_time)
+    return render_template_string(LOG_PAGE_HTML, logs='\n'.join(logs), last_summary=last_summary, last_summary_time=last_summary_time, last_google_doc_time=last_google_time)
 
 @app.route('/logs/stream')
 def log_stream():
@@ -361,25 +246,35 @@ def normalOperation(req):
     data = req.json.copy()
     if "stream" not in data:
         data['stream'] = False
-    log_info(f"New request received | Stream: {data.get('stream')} | Model: {data.get('model')}")
     
-    if "messages" in data:
-        data["messages"] = ensure_permanent_knowledge(data["messages"])
+    log_info(f"New request | Stream: {data.get('stream')} | Model: {data.get('model')}")
     
-    if "messages" in data:
-        data["messages"] = compress_history(data["messages"])
+    messages = data.get("messages", [])
     
-    if prefill_enabled and data.get("messages"):
-        messages = data["messages"]
-        if messages[-1]["role"] == "user":
-            messages.append({"content": assistant_prefill, "role": "assistant"})
-        else:
-            messages[-1]["content"] += "\n" + assistant_prefill
+    # ================== 模式选择 ==================
+    is_stream = data.get('stream')
+    
+    if is_stream:
+        # Stream 模式：使用 Legacy Injection（稳定）
+        log_info("[MODE] Stream 模式 → 使用 Legacy Injection（知识库直接注入）")
+        messages = legacy_ensure_permanent_knowledge(messages)
+        data["messages"] = compress_history(messages)
+        # 移除 tools（防止前端解析出错）
+        data.pop("tools", None)
+        data.pop("tool_choice", None)
+    else:
+        # 非 Stream 模式：尝试 Agent Tool Calling
+        log_info("[MODE] 非 Stream 模式 → 尝试 Agent Tool Calling")
+        if not any(msg.get("role") == "system" for msg in messages):
+            messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+        messages = compress_history(messages)
+        data["messages"] = messages
+        data["tools"] = TOOLS
+        data["tool_choice"] = "auto"
     
     api_url = 'https://openrouter.ai/api/v1'
     api_key = req.headers.get('Authorization', '').strip()
     if not api_key:
-        log_info("Error: No API key provided")
         return jsonify(error="No API key"), 401
     
     req_model = data.get("model")
@@ -387,53 +282,65 @@ def normalOperation(req):
     
     config = {
         'url': f'{api_url}/chat/completions',
-        'headers': {
-            'Content-Type': 'application/json',
-            'Authorization': api_key,
-            'HTTP-Referer': 'https://janitorai.com/',
-        },
-        'json': {
-            'messages': data.get('messages'),
-            'model': newmodel,
-            'temperature': data.get('temperature', 0.85),
-            'max_tokens': data.get('max_tokens', 4096),
-            'stream': data.get('stream', False),
-            'repetition_penalty': data.get('repetition_penalty', repetition_penalty),
-            'presence_penalty': data.get('presence_penalty', presence_penalty),
-            'frequency_penalty': data.get('frequency_penalty', frequency_penalty),
-            'min_p': data.get('min_p', min_p),
-            'top_p': data.get('top_p', top_p),
-            'top_k': data.get('top_k', top_k),
-            'stop': data.get('stop'),
-            'logit_bias': data.get('logit_bias', {}),
-            'transforms': ["middle-out"],
-        },
+        'headers': {'Content-Type': 'application/json','Authorization': api_key,'HTTP-Referer': 'https://janitorai.com/'},
+        'json': data
     }
     
     try:
-        if data.get('stream'):
-            return Response(stream_with_context(genstream(config, req_model)),
-                          content_type='text/event-stream')
-        else:
+        if is_stream:
+            return Response(stream_with_context(genstream(config, req_model)), content_type='text/event-stream')
+        
+        # ================== 非 Stream：Tool Calling 循环 ==================
+        max_tool_loops = 3
+        for loop in range(max_tool_loops):
             response = requests.post(**config)
-            if response.status_code <= 299:
-                result = response.json()
-                if result.get("choices") and result["choices"][0].get("message"):
-                    content = result["choices"][0]["message"]["content"]
-                    log_response(content, req_model, is_stream=False)
-                    if auto_trim:
-                        result["choices"][0]["message"]["content"] = autoTrim(content)
-                return jsonify(result)
-            else:
+            
+            # 如果模型不支持 Tool Calling，自动降级
+            if response.status_code in (400, 422) and ("tool" in response.text.lower() or "tools" in response.text.lower()):
+                log_info("[MODE] 模型不支持 Tool Calling → 自动切换 Legacy Injection")
+                messages = legacy_ensure_permanent_knowledge(data.get("messages", []))
+                data["messages"] = compress_history(messages)
+                data.pop("tools", None)
+                data.pop("tool_choice", None)
+                config['json'] = data
+                continue
+            
+            if response.status_code > 299:
                 log_info(f"API Error {response.status_code}: {response.text}")
-                return jsonify(error=response.json()), response.status_code
+                return jsonify(error=response.text), response.status_code
+            
+            result = response.json()
+            choice = result["choices"][0]
+            message = choice.get("message", {})
+            
+            if message.get("tool_calls"):
+                tool_calls = message["tool_calls"]
+                log_info(f"[KB TOOL CALL] LLM 主动请求查阅知识库 | Loop: {loop+1}")
+                for tool_call in tool_calls:
+                    tool_result = execute_tool(tool_call)
+                    messages.append({"role": "assistant", "content": None, "tool_calls": [tool_call]})
+                    messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": tool_result})
+                data["messages"] = messages
+                config['json'] = data
+                continue
+            
+            # 最终回复
+            content = message.get("content", "")
+            log_response(content, req_model, is_stream=False)
+            if auto_trim:
+                result["choices"][0]["message"]["content"] = autoTrim(content)
+            return jsonify(result)
+        
+        return jsonify(error="Tool loop limit exceeded"), 500
+    
     except Exception as e:
         log_info(f"Exception occurred: {str(e)}")
         return jsonify(error=str(e)), 500
 
+# ================== 路由 ==================
 @app.route('/')
 def default():
-    return {"status": "online", "model": model}
+    return {"status": "online", "mode": "Agent Tool + Stream Optimized"}
 
 @app.route('/models')
 @app.route('/v1/models')
