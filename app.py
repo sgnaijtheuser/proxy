@@ -1,14 +1,13 @@
 # ================================================
-# OpenRouter Reverse Proxy - Stream + Tool Calling 强制版 (DeepSeek-V3.2)
-# Stream 模式也强制使用 Tool Calling（适合 anime.gf 无法关闭 stream 的情况）
-# 新增完整 Prompt 日志 + 处理模式日志
+# OpenRouter Reverse Proxy - 强制关闭 Stream + DeepSeek Tool Calling 版 (Render)
+# 专为 anime.gf 设计：强制非 Stream 模式，保证 Tool Calling 正常工作
 # ================================================
 import json
 import requests
 import time
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+from flask import Flask, request, jsonify, Response, render_template_string
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -31,7 +30,8 @@ frequency_penalty = 0.05
 presence_penalty = 0.08
 
 # ================== Google Docs 知识库 ==================
-GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"  # ← 改成你的 /pub 链接
+# 【必须修改】改成你自己的 /pub 链接
+GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"
 
 last_google_doc_load_time = None
 _character_knowledge_cache = None
@@ -82,9 +82,9 @@ def add_log(message):
 def log_info(message):
     add_log(f"[INFO] {message}")
 
-def log_response(content, model_name="Unknown", is_stream=False):
+def log_response(content, model_name="Unknown"):
     timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name} | Stream: {is_stream}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
+    log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
     add_log(log_line)
 
 # ================== Tool 定义 ==================
@@ -110,7 +110,7 @@ def execute_tool(tool_call):
 SYSTEM_PROMPT = """你是一个角色扮演助手。你有一个外部知识库工具：retrieve_character_knowledge。
 当对话需要角色设定、性格、背景或长期记忆时，你必须先调用工具获取最新信息，再生成回复。"""
 
-# ================== Legacy Injection（降级备用） ==================
+# ================== Legacy Injection（备用降级） ==================
 def legacy_ensure_permanent_knowledge(messages):
     if not messages:
         messages = []
@@ -177,7 +177,7 @@ def compress_history(messages):
     total_tokens = estimate_tokens(messages)
     if total_tokens <= MAX_CONTEXT_TOKENS:
         return messages
-    log_info(f"History too long: ~{total_tokens} tokens -> auto summarizing...")
+    log_info(f"History too long: \~{total_tokens} tokens -> auto summarizing...")
     system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
     chat_messages = messages[1:] if system_msg else messages
     recent_messages = []
@@ -201,71 +201,6 @@ def compress_history(messages):
 def log_full_prompt(messages, mode):
     prompt_str = json.dumps(messages, ensure_ascii=False, indent=2)
     add_log(f"[PROMPT LOG] 处理模式: {mode}\n发出的完整 Prompt:\n{prompt_str}\n[PROMPT END]")
-
-# ================== Stream + Tool Calling 处理（核心修改） ==================
-def genstream_with_tool(config, model_name, messages):
-    full_content = ""
-    tool_calls_buffer = []
-    current_tool_calls = None
-
-    try:
-        with requests.post(**config) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                text = line.decode('utf-8')
-                if text == ": OPENROUTER PROCESSING":
-                    yield f"{text}\n\n"
-                    continue
-                if text.startswith("data: "):
-                    if text == "data: [DONE]":
-                        yield f"{text}\n\n"
-                        continue
-                    try:
-                        chunk = json.loads(text[6:])
-                        choice = chunk.get("choices", [{}])[0]
-                        delta = choice.get("delta", {})
-                        finish_reason = choice.get("finish_reason")
-
-                        # 普通内容流式输出
-                        if delta.get("content"):
-                            content_delta = delta["content"]
-                            full_content += content_delta
-                            yield f"{text}\n\n"
-
-                        # 收集 tool_calls（增量）
-                        if delta.get("tool_calls"):
-                            if current_tool_calls is None:
-                                current_tool_calls = [{} for _ in delta["tool_calls"]]
-                            for tc_delta in delta["tool_calls"]:
-                                idx = tc_delta.get("index", 0)
-                                if idx < len(current_tool_calls):
-                                    current_tool_calls[idx].update(tc_delta)
-
-                        # 检测 tool call 完成
-                        if finish_reason == "tool_calls" and current_tool_calls:
-                            log_info(f"[KB TOOL CALL in Stream] 检测到 Tool Call，正在执行知识库检索...")
-                            for tc in current_tool_calls:
-                                tool_result = execute_tool(tc)
-                                messages.append({"role": "assistant", "content": None, "tool_calls": [tc]})
-                                messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": tool_result})
-                            
-                            # 更新 config 并继续生成最终回复
-                            config['json']["messages"] = messages
-                            # 这里简化处理：中断当前流，重新发起请求生成最终内容
-                            # （实际生产可优化为更平滑的循环）
-                            break
-
-                    except Exception as e:
-                        log_info(f"Stream chunk parse error: {str(e)}")
-                yield f"{text}\n\n"
-                time.sleep(0.01)
-    except Exception as e:
-        log_info(f"Stream error: {e}")
-    finally:
-        if full_content:
-            log_response(full_content, model_name, is_stream=True)
 
 # ================== 日志页面 ==================
 LOG_PAGE_HTML = """<!DOCTYPE html>
@@ -317,16 +252,15 @@ def log_stream():
             time.sleep(0.5)
     return Response(generate(), mimetype='text/event-stream')
 
-# ================== 主处理函数 ==================
+# ================== 主处理函数（强制关闭 Stream） ==================
 def normalOperation(req):
     if not req.json:
         return jsonify(error=True), 400
     data = req.json.copy()
-    if "stream" not in data:
-        data['stream'] = False
-    is_stream = data.get('stream')
     
-    log_info(f"New request received | Stream: {is_stream} | Model: {data.get('model')}")
+    # ================== 强制关闭 Stream ==================
+    data['stream'] = False
+    log_info("Stream 已强制关闭 → 使用 Tool Calling 模式")
     
     messages = data.get("messages", [])
     
@@ -335,9 +269,9 @@ def normalOperation(req):
     
     messages = compress_history(messages)
     
-    # ================== 强制 Tool Calling（Stream 也尝试） ==================
-    mode = "Tool Calling (Stream 强制模式)" if is_stream else "Tool Calling (非 Stream)"
-    log_info(f"[MODE] 使用 {mode}")
+    # 使用 Tool Calling 模式
+    mode = "Tool Calling (强制非 Stream 模式)"
+    log_info(f"[MODE] {mode}")
     data["messages"] = messages
     data["tools"] = TOOLS
     data["tool_choice"] = "auto"
@@ -360,15 +294,14 @@ def normalOperation(req):
     }
     
     try:
-        if is_stream:
-            return Response(stream_with_context(genstream_with_tool(config, req_model, messages)), content_type='text/event-stream')
-        
-        # 非 Stream Tool Calling 循环（保持原有）
+        # ================== Tool Calling 循环 ==================
         max_loops = 3
         for loop in range(max_loops):
             response = requests.post(**config)
+            
+            # 自动降级处理
             if response.status_code in (400, 422) and "tool" in response.text.lower():
-                log_info("[MODE] 模型不支持 Tool → 切换 Legacy Injection")
+                log_info("[MODE] 模型不支持 Tool Calling → 切换 Legacy Injection")
                 messages = legacy_ensure_permanent_knowledge(messages)
                 data["messages"] = compress_history(messages)
                 data.pop("tools", None)
@@ -378,14 +311,14 @@ def normalOperation(req):
                 continue
             
             if response.status_code > 299:
-                log_info(f"API Error {response.status_code}")
+                log_info(f"API Error {response.status_code}: {response.text}")
                 return jsonify(error=response.text), response.status_code
             
             result = response.json()
             message = result["choices"][0].get("message", {})
             
             if message.get("tool_calls"):
-                log_info(f"[KB TOOL CALL] Loop {loop+1}")
+                log_info(f"[KB TOOL CALL] DeepSeek 主动请求查阅知识库 | Loop: {loop+1}")
                 for tc in message["tool_calls"]:
                     tool_result = execute_tool(tc)
                     messages.append({"role": "assistant", "content": None, "tool_calls": [tc]})
@@ -394,8 +327,9 @@ def normalOperation(req):
                 config['json'] = data
                 continue
             
+            # 最终回复
             content = message.get("content", "")
-            log_response(content, req_model, False)
+            log_response(content, req_model)
             if auto_trim:
                 result["choices"][0]["message"]["content"] = autoTrim(content)
             return jsonify(result)
@@ -409,7 +343,7 @@ def normalOperation(req):
 # ================== 路由 ==================
 @app.route('/')
 def default():
-    return {"status": "online", "mode": "Stream Forced Tool Calling"}
+    return {"status": "online", "mode": "Forced Non-Stream + Tool Calling"}
 
 @app.route('/models')
 @app.route('/v1/models')
