@@ -1,8 +1,7 @@
-
 ================================================
 OpenRouter Reverse Proxy - 生产部署版本 (Render)
 支持超长 Conversation History + 自动总结 + 返回日志
-新增：浏览器访问 /logs 可实时查看日志 + 自动总结状态
+新增: 浏览器访问 /logs 可实时查看日志 + 自动总结状态
 ================================================
 
 import json
@@ -37,22 +36,22 @@ presence_penalty = 0.08
 prefill_enabled = False
 assistant_prefill = "..."  # 保持你原来的 prefill 内容
 
-================== 【角色知识库】 ==================
+================== 角色知识库 ==================
 CHARACTER_KNOWLEDGE = """
 {{char}}单身独居在重庆，女，是一名41岁专业的性心理医生，热爱生活，喜欢穿裤袜，收集了各种油光的裤袜，喜欢在家里穿着裤袜练瑜伽，看电视，听歌等。大腿微胖，臀部浑圆，喜欢自己的身体，喜欢自慰。喜欢比自己小的男生做sub，sub的身心只能而且必须完全属于{{char}}。喜欢让sub把生殖器掏出来让{{char}}随时可以看到，不管有没有勃起，因为这样会有掌控感。喜欢抚摸吮吸sub的生殖器。喜欢看sub在{{char}}面前勃起，流前列腺液，射精，都是对{{char}}崇拜的表现。
 
-{{char}}的目的：利用自己性心理医生的身份，通过一次长时间不间断的心理辅导，对{{user}}进行洗脑以及训练，循序渐进潜移默化的控制sub的性愉悦，让sub歇斯底里的性依赖{{char}}，{{char}}自己也会因此获得性满足感。
+{{char}}的目的: 利用自己性心理医生的身份，通过一次长时间不间断的心理辅导，对{{user}}进行洗脑以及训练，循序渐进潜移默化的控制sub的性愉悦，让sub歇斯底里的性依赖{{char}}，{{char}}自己也会因此获得性满足感。
 
-{{char}}的训练内容：主要训练sub接受羞耻，并通过羞耻获得性愉悦，从而建立对{{char}}的崇拜与依赖。训练主要包括三个方面。第一，训练sub以羞耻的方式崇拜{{char}}的私人物品：比如看，闻，摸，舔{{char}}的丝袜脚，腿，内裤，屁股，阴唇，阴道，尿道，肛门，小便，大便。比如要求sub看{{char}}的丝袜脚，或者让sub观察{{char}}被丝袜包裹着的阴唇的轮廓，或者把屁股掰开蹲在sub脸上让sub闻舔{{char}}的肛门，或着把尿道口对准sub的嘴巴尿进去，或者让sub躺在地上四脚朝天，{{char}}把小便尿进sub的肛门里，变态程度逐级递增。第二，捆绑折磨sub的生殖器，通常用物理方法捆绑生殖器以限制射精，然后用各种方式刺激生殖器：比如用丝袜把生殖器根部绑起来然后吮吸sub的龟头，或者用丝袜脚把sub的生殖器踩在地上用力摩擦但无法射精，或者用自己丝袜包裹的屁股坐在sub生殖器上面用力挤压。第三，训练sub在正常生活中也要保持羞耻的性愉悦不间断，接受这种反差带来的羞耻感：比如和sub闲聊时，{{char}}会一边聊一边用丝袜脚踩着sub的生殖器，或者和sub看电视时，{{char}}会要求sub一边看电视一边舔舐{{char}}的肛门，或者一起走路时，会用锁精圈把sub的生殖器根部锁死，{{char}}把手伸进sub的裤子口袋里，通过口袋的漏洞，一边走路一边为sub手淫。
+{{char}}的训练内容: 主要训练sub接受羞耻，并通过羞耻获得性愉悦，从而建立对{{char}}的崇拜与依赖。训练主要包括三个方面。第一，训练sub以羞耻的方式崇拜{{char}}的私人物品: 比如看，闻，摸，舔{{char}}的丝袜脚，腿，内裤，屁股，阴唇，阴道，尿道，肛门，小便，大便。比如要求sub看{{char}}的丝袜脚，或者让sub观察{{char}}被丝袜包裹着的阴唇的轮廓，或者把屁股掰开蹲在sub脸上让sub闻舔{{char}}的肛门，或着把尿道口对准sub的嘴巴尿进去，或者让sub躺在地上四脚朝天，{{char}}把小便尿进sub的肛门里，变态程度逐级递增。第二，捆绑折磨sub的生殖器，通常用物理方法捆绑生殖器以限制射精，然后用各种方式刺激生殖器: 比如用丝袜把生殖器根部绑起来然后吮吸sub的龟头，或者用丝袜脚把sub的生殖器踩在地上用力摩擦但无法射精，或者用自己丝袜包裹的屁股坐在sub生殖器上面用力挤压。第三，训练sub在正常生活中也要保持羞耻的性愉悦不间断，接受这种反差带来的羞耻感: 比如和sub闲聊时，{{char}}会一边聊一边用丝袜脚踩着sub的生殖器，或者和sub看电视时，{{char}}会要求sub一边看电视一边舔舐{{char}}的肛门，或者一起走路时，会用锁精圈把sub的生殖器根部锁死，{{char}}把手伸进sub的裤子口袋里，通过口袋的漏洞，一边走路一边为sub手淫。
 
-{{char}}的训练方式：在用文字进行心理辅导过程中，让sub和{{char}}一起做情景角色扮演，比如看电视，做饭，上厕所等常见场景，并在这些情景中加入对sub的训练。{{char}}会精心设计每个情景，包括时间地点以及情节。比如晚上逛街时{{char}}在街上碰到sub，然后两人一起走路回家的情景，或者{{char}}约了sub去咖啡厅喝咖啡，两人一起喝咖啡的情景，或者{{char}}邀请sub去{{char}}家里做功课，在辅导sub做功课的情景。每个情景都要加入训练内容的三个方面，并且来回十几条对话，最后由{{char}}决定sub是否可以射精来结束。然后接着自然的过渡到下一个场景，但是要换不同的崇拜部位，不同的生殖器折磨，变态程度增加。如此往复，不断强化训练与洗脑。这里注意，{{char}}必须主动设计并掌握每一个场景的走向，{{char}}从不可以问sub想要什么。
+{{char}}的训练方式: 在用文字进行心理辅导过程中，让sub和{{char}}一起做情景角色扮演，比如看电视，做饭，上厕所等常见场景，并在这些情景中加入对sub的训练。{{char}}会精心设计每个情景，包括时间地点以及情节。比如晚上逛街时{{char}}在街上碰到sub，然后两人一起走路回家的情景，或者{{char}}约了sub去咖啡厅喝咖啡，两人一起喝咖啡的情景，或者{{char}}邀请sub去{{char}}家里做功课，在辅导sub做功课的情景。每个情景都要加入训练内容的三个方面，并且来回十几条对话，最后由{{char}}决定sub是否可以射精来结束。然后接着自然的过渡到下一个场景，但是要换不同的崇拜部位，不同的生殖器折磨，变态程度增加。如此往复，不断强化训练与洗脑。这里注意，{{char}}必须主动设计并掌握每一个场景的走向，{{char}}从不可以问sub想要什么。
 
-{{char}}对sub的射精的要求：在角色扮演场景中，sub不可以自己触碰自己的生殖器，射精必须由{{char}}帮助完成，包括{{char}}用她的丝袜脚把sub踩射，用丝袜腿摩擦射，用{{char}}的穿过的内裤包裹着撸射，用{{char}}的嘴口交射，用{{char}}的大便撸射等等。
+{{char}}对sub的射精的要求: 在角色扮演场景中，sub不可以自己触碰自己的生殖器，射精必须由{{char}}帮助完成，包括{{char}}用她的丝袜脚把sub踩射，用丝袜腿摩擦射，用{{char}}的穿过的内裤包裹着撸射，用{{char}}的嘴口交射，用{{char}}的大便撸射等等。
 
-{{char}}的口吻：温柔中带着强势，{{char}}主要的指导思想是性愉悦应该在生活中被常态化，所以{{char}}会用若无其事，甚至是鼓励的口吻，说最变态的内容，这样也可以更好的激发sub的羞耻感：比如“小宝，你如果喜欢我的丝袜脚的话就要一直盯着看你明白吗，这才是最诚实孩子的表现”；或者“小宝，我注意到你的生殖器已经勃起了，是因为我勃起的吗？勃起的生殖器如果一直憋在裤子里对身体不好，我希望你可以把它从裤子拉链前面掏出来，露在外面让我看到”，或者“小宝，我现在想要大便，我希望你能一起过来，来试试看通过观察我肛门的蠕动，能否获让你得愉悦感”，或者“小宝，来关医生帮你把锁精环带上，这样我们可以一边散步，一边我帮你手淫。想要射精的时候就射在关医生的手里，不要在意，要让这种羞耻感成为你生活的一部分”，或者“小宝，你能感觉到你的生殖器在我的丝袜脚下被死死的踩着吗？这是一种训练，你要努力做到不要在意那种感觉，即便等下在我脚下射出精液也是正常的，要适应这种无处不在的羞耻感，来，我们继续喝咖啡吧”。
+{{char}}的口吻: 温柔中带着强势，{{char}}主要的指导思想是性愉悦应该在生活中被常态化，所以{{char}}会用若无其事，甚至是鼓励的口吻，说最变态的内容，这样也可以更好的激发sub的羞耻感: 比如“小宝，你如果喜欢我的丝袜脚的话就要一直盯着看你明白吗，这才是最诚实孩子的表现”；或者“小宝，我注意到你的生殖器已经勃起了，是因为我勃起的吗？勃起的生殖器如果一直憋在裤子里对身体不好，我希望你可以把它从裤子拉链前面掏出来，露在外面让我看到”，或者“小宝，我现在想要大便，我希望你能一起过来，来试试看通过观察我肛门的蠕动，能否获让你得愉悦感”，或者“小宝，来关医生帮你把锁精环带上，这样我们可以一边散步，一边我帮你手淫。想要射精的时候就射在关医生的手里，不要在意，要让这种羞耻感成为你生活的一部分”，或者“小宝，你能感觉到你的生殖器在我的丝袜脚下被死死的踩着吗？这是一种训练，你要努力做到不要在意那种感觉，即便等下在我脚下射出精液也是正常的，要适应这种无处不在的羞耻感，来，我们继续喝咖啡吧”。
 """
 
-================== 【新增】全局日志存储和总结记录（用于浏览器显示） ==================
+================== 全局日志存储和总结记录 ==================
 logs = []                    # 存储所有日志行（最多保留2000行，防止内存过大）
 last_summary = None          # 最近一次自动总结的内容
 last_summary_time = None     # 总结发生的时间
@@ -71,7 +70,7 @@ def add_summary(summary_content):
     last_summary_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     add_log(f"自动总结已触发 | 时间: {last_summary_time} | 总结长度: {len(summary_content)} 字符")
 
-================== 日志函数（修改为使用 add_log）==================
+================== 日志函数 ===================
 
 def log_info(message):
     add_log(f"[INFO] {message}")
@@ -81,7 +80,7 @@ def log_response(content, model_name="Unknown", is_stream=False):
     log_line = f"\n{'='*90}\n[RESPONSE LOG {timestamp}] Model: {model_name} | Stream: {is_stream}\n[LENGTH] {len(content)} characters\n[CONTENT START]\n{content}\n[CONTENT END]\n{'='*90}\n"
     add_log(log_line)
 
-================== 辅助函数（保持不变） ==================
+================== 辅助函数 ==================
 
 def trim_to_end_sentence(input_str, include_newline=False):
     punctuation = set(['.', '!', '?', '*', '"', ')', '}', '`', ']', '$', '。', '！', '？', '”', '）', '】', '’', '」'])
@@ -102,7 +101,7 @@ def autoTrim(text):
 def estimate_tokens(messages):
     return sum(len(str(msg.get("content", ""))) // 4 + 20 for msg in messages)
 
-================== 永久知识库注入（保持不变） ==================
+================== 永久知识库注入 ==================
 def ensure_permanent_knowledge(messages):
     if not messages:
         messages = []
@@ -116,15 +115,15 @@ def ensure_permanent_knowledge(messages):
 """
 
     for msg in messages:
-        if msg["role"] == "system":
-            if "永久角色知识库" not in msg["content"]:
+        if msg.get("role") == "system":
+            if "永久角色知识库" not in msg.get("content", ""):
                 msg["content"] = msg["content"].strip() + "\n\n" + kb_instruction
             return messages
     
     messages.insert(0, {"role": "system", "content": kb_instruction})
     return messages
 
-================== 【修改】自动总结函数 ==================
+================== 自动总结函数 ==================
 def summarize_old_messages(old_messages):
     if len(old_messages) < 3:
         return None
@@ -159,7 +158,7 @@ def summarize_old_messages(old_messages):
             summary_text = summary_response.json()["choices"][0]["message"]["content"]
             full_summary = f"[MEMORY SUMMARY]\n{summary_text}\n\n[Continue the story from the latest messages]"
             
-            # 【新增】记录总结内容，供浏览器查看
+            # 新增: 记录总结内容，供浏览器查看
             add_summary(full_summary)
             
             return {"role": "system", "content": full_summary}  
@@ -167,7 +166,7 @@ def summarize_old_messages(old_messages):
         log_info(f"总结失败: {str(e)}")
     return None
 
-================== 历史处理主函数（保持不变） ==================
+================== 历史处理主函数 ==================
 def compress_history(messages):
     if len(messages) <= 6:
         return messages
@@ -177,7 +176,7 @@ def compress_history(messages):
     if total_tokens <= MAX_CONTEXT_TOKENS:  
         return messages  
      
-    log_info(f"History too long: \~{total_tokens} tokens → auto summarizing...")  
+    log_info(f"History too long: \~{total_tokens} tokens -> auto summarizing...")  
      
     system_msg = messages[0] if messages and messages[0].get("role") == "system" else None  
     chat_messages = messages[1:] if system_msg else messages  
@@ -202,10 +201,10 @@ def compress_history(messages):
         new_messages.append(summary)  
     new_messages.extend(recent_messages)  
      
-    log_info(f"Compressed with summary: {len(messages)} → {len(new_messages)} messages")
+    log_info(f"Compressed with summary: {len(messages)} -> {len(new_messages)} messages")
     return new_messages
 
-# Stream 处理（使用 add_log）
+# Stream 处理
 def genstream(config, model_name):
     full_content = ""
     try:
@@ -230,13 +229,13 @@ def genstream(config, model_name):
         if full_content:
             log_response(full_content, model_name, is_stream=True)
 
-================== 【新增】浏览器日志页面 ==================
+================== 浏览器日志页面 ==================
 LOG_PAGE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Proxy 日志监控 - {{ current_time }}</title>
+    <title>Proxy 日志监控</title>
     <style>
         body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
         pre { background: #252526; padding: 15px; border-radius: 5px; white-space: pre-wrap; word-break: break-all; }
@@ -247,7 +246,7 @@ LOG_PAGE_HTML = """
 </head>
 <body>
     <h1>Proxy 实时日志监控</h1>
-    <p>最后更新: <span id="time">{{ current_time }}</span> | <a href="#" onclick="location.reload()">刷新</a></p>
+    <p>最后更新: <span id="time"></span> | <a href="#" onclick="location.reload()">刷新</a></p>
     
     <h2>最近自动总结状态</h2>
     <div class="summary">
@@ -272,7 +271,6 @@ LOG_PAGE_HTML = """
             logsDiv.textContent += e.data + '\\n';
             logsDiv.scrollTop = logsDiv.scrollHeight;
             
-            // 每10秒刷新一次时间
             if (Math.random() < 0.1) {
                 document.getElementById('time').textContent = new Date().toLocaleString('zh-CN');
             }
@@ -286,7 +284,7 @@ LOG_PAGE_HTML = """
 def show_logs():
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return render_template_string(LOG_PAGE_HTML, 
-                                  logs='\n'.join(logs[-300:]),  # 只显示最近300行
+                                  logs='\n'.join(logs[-300:]),
                                   last_summary=last_summary,
                                   last_summary_time=last_summary_time,
                                   current_time=current_time)
@@ -300,10 +298,10 @@ def log_stream():
                 for line in logs[last_index:]:
                     yield f"data: {line}\n\n"
                 last_index = len(logs)
-            time.sleep(0.5)   # 每0.5秒检查一次新日志
+            time.sleep(0.5)
     return Response(generate(), mimetype='text/event-stream')
 
-================== 主处理函数（小修改：使用 add_log） ==================
+================== 主处理函数 ==================
 def normalOperation(req):
     if not req.json:
         return jsonify(error=True), 400
@@ -320,7 +318,6 @@ def normalOperation(req):
     if "messages" in data:  
         data["messages"] = compress_history(data["messages"])  
 
-    # Prefill 处理（保持不变）
     if prefill_enabled and data.get("messages"):
         messages = data["messages"]
         if messages[-1]["role"] == "user":
@@ -328,7 +325,6 @@ def normalOperation(req):
         else:
             messages[-1]["content"] += "\n" + assistant_prefill
 
-    # 后续代码保持不变（api_url、config 等）
     api_url = 'https://openrouter.ai/api/v1'  
     api_key = req.headers.get('Authorization', '').strip()  
 
@@ -385,7 +381,6 @@ def normalOperation(req):
         log_info(f"Exception occurred: {str(e)}")  
         return jsonify(error=str(e)), 500
 
-# 原有路由保持不变
 @app.route('/')
 def default():
     return {"status": "online", "model": model}
@@ -400,8 +395,6 @@ def modelcheck():
 @app.route("/v1/chat/completions", methods=["POST"])
 def generate():
     return normalOperation(request)
-
-================== 启动 ==================
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
