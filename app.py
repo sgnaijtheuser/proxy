@@ -31,7 +31,7 @@ frequency_penalty = 0.05
 presence_penalty = 0.08
 
 # ================== Google Docs 知识库 ==================
-GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/1A5XHCIX1dxr5ZWMKk5aL8IVb6aXPP067Q9r8ghx64rc/pub"  # ← 必须改成 /pub 结尾
+GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"  # ← 必须改成 /pub 结尾
 
 last_google_doc_load_time = None
 _character_knowledge_cache = None
