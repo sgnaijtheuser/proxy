@@ -206,79 +206,108 @@ def log_full_prompt(messages, mode):
 
 # ================== Stream + Tool Calling 核心修复版 ==================
 def genstream_with_tool(config, model_name, original_messages):
-    """Stream 模式下支持 Tool Calling，修复 UI 重复句子问题"""
     messages = original_messages.copy()
     max_tool_loops = 3
     loop = 0
 
     while loop < max_tool_loops:
         full_content = ""
-        tool_calls_detected = None
+        tool_call_buffer = {}
 
         try:
             with requests.post(**config) as response:
                 response.raise_for_status()
+
                 for line in response.iter_lines():
                     if not line:
                         continue
+
                     text = line.decode('utf-8')
+
                     if text == ": OPENROUTER PROCESSING":
                         yield f"{text}\n\n"
                         continue
+
                     if text.startswith("data: "):
                         if text == "data: [DONE]":
                             yield f"{text}\n\n"
                             continue
+
                         try:
                             chunk = json.loads(text[6:])
                             choice = chunk.get("choices", [{}])[0]
                             delta = choice.get("delta", {})
                             finish_reason = choice.get("finish_reason")
 
-                            # 正常内容流式输出
+                            # ================== 正常内容 ==================
                             if delta.get("content"):
-                                content_delta = delta["content"]
-                                full_content += content_delta
+                                full_content += delta["content"]
                                 yield f"{text}\n\n"
 
-                            # 检测 tool call
+                            # ================== 拼接 tool_call ==================
                             if delta.get("tool_calls"):
-                                if tool_calls_detected is None:
-                                    tool_calls_detected = []
-                                for tc_delta in delta["tool_calls"]:
-                                    tool_calls_detected.append(tc_delta)
+                                for tc in delta["tool_calls"]:
+                                    idx = tc.get("index", 0)
 
-                            # 工具调用完成
-                            if finish_reason == "tool_calls" and tool_calls_detected:
-                                log_info(f"[KB TOOL CALL in Stream] Loop {loop+1} 检测到 Tool Call，正在执行...")
-                                # 执行工具
-                                for tc in tool_calls_detected:
+                                    if idx not in tool_call_buffer:
+                                        tool_call_buffer[idx] = {
+                                            "id": tc.get("id"),
+                                            "type": "function",
+                                            "function": {
+                                                "name": "",
+                                                "arguments": ""
+                                            }
+                                        }
+
+                                    if "function" in tc:
+                                        fn = tc["function"]
+                                        if fn.get("name"):
+                                            tool_call_buffer[idx]["function"]["name"] += fn["name"]
+                                        if fn.get("arguments"):
+                                            tool_call_buffer[idx]["function"]["arguments"] += fn["arguments"]
+
+                            # ================== tool 调用完成 ==================
+                            if finish_reason == "tool_calls" and tool_call_buffer:
+                                log_info(f"[KB TOOL CALL] Loop {loop+1} 捕获完整 Tool Call")
+
+                                for tc in tool_call_buffer.values():
                                     tool_result = execute_tool(tc)
-                                    messages.append({"role": "assistant", "content": None, "tool_calls": [tc]})
-                                    messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": tool_result})
-                                
-                                # 更新 config，进入下一轮（最终回复）
+
+                                    messages.append({
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": [tc]
+                                    })
+
+                                    messages.append({
+                                        "role": "tool",
+                                        "tool_call_id": tc.get("id"),
+                                        "content": tool_result
+                                    })
+
+                                # 下一轮请求（生成最终回答）
                                 config['json']["messages"] = messages
                                 loop += 1
-                                break  # 停止当前流，进入下一轮新请求
+                                break
 
-                        except Exception as parse_e:
-                            log_info(f"Stream chunk parse error: {str(parse_e)}")
+                        except Exception as e:
+                            log_info(f"Stream parse error: {str(e)}")
+
                     else:
                         yield f"{text}\n\n"
+
                     time.sleep(0.01)
 
         except Exception as e:
             log_info(f"Stream error: {e}")
             break
 
-        if not tool_calls_detected:
-            # 本轮没有 tool call → 最终回复完成
+        # 没有 tool → 说明已经是最终回答
+        if not tool_call_buffer:
             if full_content:
                 log_response(full_content, model_name, is_stream=True)
             break
 
-    # 如果超过循环次数，强制结束
     if loop >= max_tool_loops:
         log_info("[WARNING] Tool loop 达到上限")
 
