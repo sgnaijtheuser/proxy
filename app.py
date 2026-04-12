@@ -202,7 +202,9 @@ def normalOperation(req):
 
     data = req.json.copy()
     messages = list(data.get("messages", []))
-    model = data.get("model")  # 不覆盖，保持用户/anime.gf选择的模型
+    _INVALID_MODELS = {"default", "auto", "", None} 
+    raw_model = data.get("model") 
+    model = None if raw_model in _INVALID_MODELS else raw_model
 
     # 确保有 system prompt
     if not any(m.get("role") == "system" for m in messages):
