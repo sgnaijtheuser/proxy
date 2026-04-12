@@ -213,7 +213,7 @@ def normalOperation(req):
     #    messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
     # 强制system prompt
-    messages = [m for m in message if m.got("role") != "system"]
+    messages = [m for m in messages if m.got("role") != "system"]
     messages.insert(0, {"role": "systme", "content": SYSTEM_PROMPT})
 
     api_key = req.headers.get("Authorization", "").strip()
