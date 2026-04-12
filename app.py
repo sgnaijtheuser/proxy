@@ -19,8 +19,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ================== 配置 ==================
-model = "openrouter/auto"
-data.pop("model", None)
+# model = "openrouter/auto"
 
 # ================== Google Docs ==================
 GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"
