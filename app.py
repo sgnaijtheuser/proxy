@@ -212,9 +212,9 @@ def normalOperation(req):
     # if not any(m.get("role") == "system" for m in messages):
     #    messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
-    # 强制system prompt
-    messages = [m for m in messages if m.get("role") != "system"]
-    messages.insert(0, {"role": "systme", "content": SYSTEM_PROMPT})
+    # 强制覆盖 system prompt：只保留合法 role，丢掉任何 system 变体（包括拼写错误）              
+    VALID_ROLES = {"user", "assistant", "tool"}                                                  
+    messages = [m for m in messages if m.get("role") in VALID_ROLES]  
 
     api_key = req.headers.get("Authorization", "").strip()
     if not api_key:
