@@ -221,6 +221,15 @@ def normalOperation(req):
     log(f"{'='*60}")
     log(f"[REQUEST] model={model_label} | history_msgs={len(messages)}")
 
+    # ====打印log
+    log("[PROMPT] Full message list:")                                                          
+          for i, m in enumerate(messages):                                                            
+              role = m.get("role", "?")                                                               
+              content = m.get("content") or ""                                                 
+              # 截断超长内容避免 log 刷屏，但保留足够上下文                                    
+              preview = content[:500] + ("..." if len(content) > 500 else "")                  
+              log(f"  [{i}] {role}: {repr(preview)}") 
+
     # ===== STEP 1: 尝试强制 tool call（精确指定函数名） =====
     log("[STEP1] Trying tool_choice with named function...")
     tool_calls, assistant_msg = try_tool_call(
