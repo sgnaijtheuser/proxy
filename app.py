@@ -20,6 +20,7 @@ CORS(app)
 
 # ================== 配置 ==================
 model = "openrouter/auto"
+data.pop("model", None)
 
 # ================== Google Docs ==================
 GOOGLE_DOC_PUB_URL = "https://docs.google.com/document/d/e/2PACX-1vSzjLiOsCGRuhn_vlnhSsUMoW1ZYqcj-YmlvKmhCC22Q_w_JAYL3xyDr2FeKBnmtsEObAEH7kx_fipv/pub"
@@ -148,7 +149,6 @@ def normalOperation(req):
     log("STEP1: Force tool call")
 
     tool_req = {
-        "model": data.get("model"),
         "messages": messages,
         "tools": TOOLS,
         "tool_choice": {
@@ -194,7 +194,6 @@ def normalOperation(req):
     log("STEP3: Generate response")
 
     final_req = {
-        "model": data.get("model"),
         "messages": messages,
         "stream": True
     }
