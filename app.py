@@ -429,6 +429,16 @@ def normalOperation(req):
     sid     = derive_session_id(messages)
     session = load_session(sid)
 
+    # Refresh trigger — clear state/summary if user message contains "refresh"
+    last_user = next((m.get("content","") for m in reversed(messages)             
+                    if m.get("role") == "user"), "")                            
+    if "(refresh)" in (last_user or "").lower():                                  
+      session["rolling_summary"] = ""                                           
+      session["current_state"]   = ""                                           
+      session["last_summary_at"] = 0                                            
+      save_session(session)                                                     
+      log(f"[REFRESH] ✓ Session {sid[:8]} state cleared by trigger")  
+
     # Strip all system messages — the proxy owns context injection
     VALID_ROLES = {"user", "assistant", "tool"}
     messages    = [m for m in messages if m.get("role") in VALID_ROLES]
@@ -583,7 +593,16 @@ def home():
             "/session/<id>": "Full session detail",
         },
     })
-
+@app.route("/reset-session/<sid>", methods=["POST", "GET"])
+def reset_session(sid: str):                                                  
+    s = load_session(sid)
+    if not s.get("saved_at"):                                                 
+         return f"Session {sid!r} not found", 404
+    s["rolling_summary"] = ""                                                 
+    s["current_state"]   = ""                                                 
+    s["last_summary_at"] = 0                                                  
+    save_session(s)                                                           
+    return jsonify(ok=True, session=sid, msg="State and summary cleared") 
 @app.route("/chat/completions",    methods=["POST"])
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat():
