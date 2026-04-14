@@ -58,7 +58,7 @@ _kb_loaded_at = None
 def get_character_knowledge() -> str:
     global _kb_cache, _kb_loaded_at
     now = datetime.now(SGT)
-    if _kb_cache and _kb_loaded_at and (now - _kb_loaded_at).total_seconds() < 300:
+    if _kb_cache and _kb_loaded_at and (now - _kb_loaded_at).total_seconds() < 100:
         return _kb_cache
     try:
         r = requests.get(GOOGLE_DOC_PUB_URL + "?embedded=true", timeout=15)
@@ -432,6 +432,12 @@ def normalOperation(req):
     # Strip all system messages — the proxy owns context injection
     VALID_ROLES = {"user", "assistant", "tool"}
     messages    = [m for m in messages if m.get("role") in VALID_ROLES]
+
+    # Inject KB rules as system message at position 0 (highest priority, before conversation history).    
+    # This ensures new Google Doc rules take effect immediately, even when conversation history contains old behavioral patterns that would otherwise override the KB tool result.  
+    kb_system = get_character_knowledge()
+    messages = [{"role": "system", "content": f"=== CHARACTER RULES (AUTHORITATIVE) ===\n{kb_system}"}] + messages                                  
+    log(f"[SYSTEM] Injected {len(kb_system)} chars KB as system message at position 0")           
 
     api_key = req.headers.get("Authorization", "").strip()
     if not api_key:
