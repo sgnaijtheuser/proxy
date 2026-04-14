@@ -445,9 +445,9 @@ def normalOperation(req):
 
     # Inject KB rules as system message at position 0 (highest priority, before conversation history).    
     # This ensures new Google Doc rules take effect immediately, even when conversation history contains old behavioral patterns that would otherwise override the KB tool result.  
-    kb_system = get_character_knowledge()
-    messages = [{"role": "system", "content": f"=== CHARACTER RULES (AUTHORITATIVE) ===\n{kb_system}"}] + messages                                  
-    log(f"[SYSTEM] Injected {len(kb_system)} chars KB as system message at position 0")           
+    # kb_system = get_character_knowledge()
+    # messages = [{"role": "system", "content": f"=== CHARACTER RULES (AUTHORITATIVE) ===\n{kb_system}"}] + messages                                  
+    # log(f"[SYSTEM] Injected {len(kb_system)} chars KB as system message at position 0")           
 
     api_key = req.headers.get("Authorization", "").strip()
     if not api_key:
