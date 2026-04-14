@@ -560,7 +560,7 @@ def normalOperation(req):
 
     # ===== Step 3: Stream final response =====
     log("[STEP3] Streaming final response…")
-    final_body = {"messages": msgs, "stream": True}
+    final_body = {"messages": msgs, "stream": True, "max_tokens": 400}
     if model:
         final_body["model"] = model
 
