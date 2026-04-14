@@ -273,7 +273,7 @@ def try_tool_call(url, headers, messages, model, tool_choice):
     tc_label = json.dumps(tool_choice) if isinstance(tool_choice, dict) else repr(tool_choice)
     log(f"[TOOL-REQ] → tool_choice={tc_label} | {len(messages)} msgs in context")
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=60)
+        r = requests.post(url, headers=headers, json=body, timeout=180)
         if r.status_code != 200:
             log(f"[TOOL-REQ] ✗ HTTP {r.status_code}: {r.text[:300]}")
             return None, None
@@ -403,6 +403,10 @@ def bg_extract_state(session: dict, response_text: str, recent_msgs: list, url, 
         "Write in present tense. Be specific and factual."
     )
     result = _llm_call(url, headers, model, prompt, 250)
+    if not result:                                                                                                                                      
+        log(f"[STATE] Retrying in 5s for {sid[:8]}…")                                                                                                   
+        time.sleep(5)                                                                                                                                   
+        result = _llm_call(url, headers, model, prompt, 250)
     if result:
         fresh          = load_session(sid)
         fresh["current_state"] = result
