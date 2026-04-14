@@ -358,7 +358,7 @@ def _llm_call(url, headers, model, prompt: str, max_tokens: int) -> str | None:
         r = requests.post(url, headers=headers, json=body, timeout=45)
         if r.status_code == 200:
             msg = r.json()["choices"][0]["message"]                                                                                                             
-            content = msg.get("content") or msg.get("reasoning_content") or ""                                                                                  
+            content = msg.get("content") or msg.get("reasoning_content") or msg.get("reasoning") or ""                                                                                  
             content = content.strip()                                         
             if not content:                                                                                                                                     
                 log(f"[LLM-AUX] ✗ Null/empty content | msg keys: {list(msg.keys())} | raw: {r.text[:300]}")
@@ -409,10 +409,6 @@ def bg_extract_state(session: dict, response_text: str, recent_msgs: list, url, 
         "Write in present tense. Be specific and factual."
     )
     result = _llm_call(url, headers, model, prompt, 250)
-    if not result:                                                                                                                                      
-        log(f"[STATE] Retrying in 5s for {sid[:8]}…")                                                                                                   
-        time.sleep(5)                                                                                                                                   
-        result = _llm_call(url, headers, model, prompt, 250)
     if result:
         fresh          = load_session(sid)
         fresh["current_state"] = result
