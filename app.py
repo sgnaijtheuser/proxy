@@ -357,11 +357,13 @@ def _llm_call(url, headers, model, prompt: str, max_tokens: int) -> str | None:
     try:
         r = requests.post(url, headers=headers, json=body, timeout=45)
         if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"] 
-            if not content:                                                                                                                                     
-              log(f"[LLM-AUX] ✗ 200 but empty/null content: {r.text[:200]}")                                                                                  
-              return None   
-            return content
+          msg = r.json()["choices"][0]["message"]                                                                                                             
+          content = msg.get("content") or msg.get("reasoning_content") or ""                                                                                  
+          content = content.strip()                                         
+          if not content:                                                                                                                                     
+              log(f"[LLM-AUX] ✗ Null/empty content | msg keys: {list(msg.keys())} | raw: {r.text[:300]}")
+              return None                                                                                                                                     
+      return content    
         log(f"[LLM-AUX] ✗ HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         log(f"[LLM-AUX] ✗ Exception: {e}")
