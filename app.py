@@ -19,7 +19,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ================== Configuration ==================
-KEEP_RECENT_N  = int(os.environ.get("KEEP_RECENT_N",  "30"))   # messages kept in full
+KEEP_RECENT_N  = int(os.environ.get("KEEP_RECENT_N",  "15"))   # messages kept in full
 SUMMARY_BATCH  = int(os.environ.get("SUMMARY_BATCH",  "10"))   # min new msgs before summarizing
 MAX_LOG_LINES  = 500
 SGT            = timezone(timedelta(hours=8))
@@ -358,7 +358,7 @@ def _llm_call(url, headers, model, prompt: str, max_tokens: int) -> str | None:
         r = requests.post(url, headers=headers, json=body, timeout=45)
         if r.status_code == 200:
             msg = r.json()["choices"][0]["message"]                                                                                                             
-            content = msg.get("content") or msg.get("reasoning_content") or msg.get("reasoning") or ""                                                                                  
+            content = msg.get("content") or msg.get("reasoning_content") or ""                                                                                  
             content = content.strip()                                         
             if not content:                                                                                                                                     
                 log(f"[LLM-AUX] ✗ Null/empty content | msg keys: {list(msg.keys())} | raw: {r.text[:300]}")
