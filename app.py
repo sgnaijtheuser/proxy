@@ -379,7 +379,7 @@ def bg_summarize(sid: str, new_msgs: list, new_last_at: int, url, headers, model
         (f"Previous summary:\n{existing}\n\n" if existing else "") +
         f"New messages to incorporate:\n{formatted}\n\n"
         "Write a concise 3-5 paragraph narrative summary of the full story so far. "
-        "Cover: key events, decisions made, actions taken, where characters are, "
+        "Cover: key events, decisions made, actions taken, how close are the relationships between user and char, where characters are, "
         "any unresolved threads. Be specific and factual. "
         "This will be injected as context to maintain roleplay continuity."
     )
@@ -404,6 +404,7 @@ def bg_extract_state(session: dict, response_text: str, recent_msgs: list, url, 
         "Based on the above, extract the current story state in under 120 words:\n"
         "- Where is the character right now (location / situation)?\n"
         "- What did the character just do or say?\n"
+        "- How close is the relationship between the char and the user so far?\n"
         "- What is the character's immediate intent or plan?\n"
         "- Any open commitments or story threads that must continue?\n"
         "Write in present tense. Be specific and factual."
