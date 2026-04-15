@@ -536,8 +536,8 @@ def normalOperation(req):
         hb = 0
         while not _result["done"]:
             # Send visible typing indicator so AnimGF doesn't timeout during slow tool calls.
-            # First tick: "正在输入中...", subsequent ticks: one extra dot each time.
-            dot_text = "正在输入中..." if hb == 0 else "."
+            # First tick: ".", subsequent ticks: one extra dot each time.
+            dot_text = "." if hb == 0 else "."
             typing_chunk = json.dumps({
                 "id": "chatcmpl-typing",
                 "object": "chat.completion.chunk",
