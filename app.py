@@ -19,7 +19,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ================== Configuration ==================
-KEEP_RECENT_N  = int(os.environ.get("KEEP_RECENT_N",  "15"))   # messages kept in full
+KEEP_RECENT_N  = int(os.environ.get("KEEP_RECENT_N",  "30"))   # messages kept in full
 SUMMARY_BATCH  = int(os.environ.get("SUMMARY_BATCH",  "10"))   # min new msgs before summarizing
 MAX_LOG_LINES  = 500
 SGT            = timezone(timedelta(hours=8))
