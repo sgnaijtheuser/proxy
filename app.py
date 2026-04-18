@@ -526,18 +526,6 @@ def normalOperation(req):
     data     = req.json.copy()
     messages = list(data.get("messages", []))
 
-    # Log all messages sent by Anime.gf (raw, before any proxy modifications)
-    log(f"[ANIMEGF] ── Incoming from Anime.gf: {len(messages)} messages ──")
-    for i, m in enumerate(messages):
-        role    = m.get("role", "?")
-        content = m.get("content") or ""
-        if isinstance(content, list):
-            content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
-        log(f"[ANIMEGF] [{i}] role={role} len={len(content)}")
-        # Print full content in chunks so nothing gets cut off
-        for chunk_start in range(0, max(1, len(content)), 500):
-            log(f"[ANIMEGF]      {repr(content[chunk_start:chunk_start+500])}")
-    log(f"[ANIMEGF] ── End Anime.gf messages ──")
 
     _INVALID = {"default", "Default", "auto", "openrouter/auto", "", None}
     model    = data.get("model")
@@ -591,6 +579,17 @@ def normalOperation(req):
                 m = {**m, "content": stripped}
         cleaned.append(m)
     messages = cleaned
+
+    log(f"[MSGS-IN] ── {len(messages)} messages after cleaning ──")
+    for i, m in enumerate(messages):
+        role    = m.get("role", "?")
+        content = m.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+        log(f"[MSGS-IN] [{i}] role={role} len={len(content)}")
+        for chunk_start in range(0, max(1, len(content)), 500):
+            log(f"[MSGS-IN]      {repr(content[chunk_start:chunk_start+500])}")
+    log(f"[MSGS-IN] ──────────────────────────────────────────────────")
 
     # Inject KB rules as system message at position 0 (highest priority, before conversation history).
     # This ensures new Google Doc rules take effect immediately, even when conversation history contains old behavioral patterns that would otherwise override the KB tool result.
