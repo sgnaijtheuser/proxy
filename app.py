@@ -326,7 +326,7 @@ TOOL_CHOICE_REQUIRED = "required"
 def make_tcid() -> str:
     return "call_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
 
-def build_kb_content(session: dict) -> str:
+def build_kb_content(session: dict, last_user_msg: str = "") -> str:
     """Build the full context block injected as the tool result: KB + story summary + current state."""
     kb    = get_character_knowledge()
     parts = [f"=== CHARACTER KNOWLEDGE BASE ===\n{kb}"]
@@ -334,6 +334,18 @@ def build_kb_content(session: dict) -> str:
         parts.append(f"=== STORY SO FAR ===\n{session['rolling_summary']}")
     if session.get("current_state"):
         parts.append(f"=== CURRENT STORY STATE ===\n{session['current_state']}")
+    if session.get("last_char_response") or last_user_msg:
+        continuity = "=== CONTINUITY ===\n"
+        if session.get("last_char_response"):
+            continuity += f"Your last message was: \"{session['last_char_response'][:150]}\"\n"
+        if last_user_msg:
+            continuity += f"User's last message: \"{last_user_msg[:150]}\"\n"
+        continuity += (
+            "Your next response must flow coherently from your last message. "
+            "Pick up the information the user just shared and use it to drive the conversation "
+            "forward your way — you lead, but do not ignore or contradict what the user said."
+        )
+        parts.append(continuity)
     total = "\n\n".join(parts)
     log(
         f"[KB-CONTENT] Built {len(total)} chars — "
@@ -735,7 +747,10 @@ def normalOperation(req):
                 return
 
         # --- STEP 2: Inject KB ---
-        kb_content = build_kb_content(session)
+        last_user = next(
+            ((m.get("content") or "") for m in reversed(msgs) if m.get("role") == "user"), ""
+        )
+        kb_content = build_kb_content(session, last_user_msg=last_user)
 
         if tcs:
             log(f"[STEP2] ✓ REAL TOOL CALL — executing {len(tcs)} tool(s)")
