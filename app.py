@@ -69,6 +69,51 @@ def _fetch_doc(url: str) -> str:
     text  = soup.get_text(separator="\n", strip=True)
     return "\n".join(l.strip() for l in text.splitlines() if l.strip())
 
+def strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> and <thinking>...</thinking> internal reasoning blocks."""
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
+    return text.strip()
+
+class ThinkBlockFilter:
+    """State-machine filter for streaming: suppresses <think>...</think> blocks."""
+    OPEN  = "<think>"
+    CLOSE = "</think>"
+
+    def __init__(self):
+        self.buf      = ""
+        self.in_think = False
+
+    def feed(self, text: str) -> str:
+        self.buf += text
+        out = ""
+        while self.buf:
+            if not self.in_think:
+                idx = self.buf.find(self.OPEN)
+                if idx == -1:
+                    safe = max(0, len(self.buf) - len(self.OPEN) + 1)
+                    out += self.buf[:safe]
+                    self.buf = self.buf[safe:]
+                    break
+                out += self.buf[:idx]
+                self.buf = self.buf[idx + len(self.OPEN):]
+                self.in_think = True
+            else:
+                idx = self.buf.find(self.CLOSE)
+                if idx == -1:
+                    safe = max(0, len(self.buf) - len(self.CLOSE) + 1)
+                    self.buf = self.buf[safe:]
+                    break
+                self.buf = self.buf[idx + len(self.CLOSE):]
+                self.in_think = False
+        return out
+
+    def flush(self) -> str:
+        if not self.in_think:
+            out, self.buf = self.buf, ""
+            return out
+        return ""
+
 def get_jailbreak() -> str:
     global _jailbreak_cache, _jailbreak_loaded_at
     now = datetime.now(SGT)
@@ -331,7 +376,8 @@ def try_tool_call(url, headers, messages, model, tool_choice):
 # ================== Streaming ==================
 def genstream(url, headers, body, acc: dict):
     """Stream SSE chunks. Accumulates full text into acc['text'] when done."""
-    full = ""
+    full   = ""
+    filt   = ThinkBlockFilter()
     try:
         with requests.post(url, headers=headers, json=body, stream=True, timeout=120) as r:
             r.raise_for_status()
@@ -341,24 +387,42 @@ def genstream(url, headers, body, acc: dict):
                 text = raw.decode("utf-8")
                 if text.startswith("data: "):
                     if text == "data: [DONE]":
+                        # Flush any buffered non-think content before [DONE]
+                        leftover = filt.flush()
+                        if leftover:
+                            flush_chunk = json.dumps({
+                                "id": "chatcmpl-flush",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": body.get("model", "proxy"),
+                                "choices": [{"index": 0, "delta": {"content": leftover}, "finish_reason": None}],
+                            }, ensure_ascii=False)
+                            yield f"data: {flush_chunk}\n\n"
                         yield text + "\n\n"
                         continue
                     try:
                         chunk = json.loads(text[6:])
                         delta = chunk["choices"][0]["delta"]
                         if delta.get("content"):
-                            full += delta["content"]
-                        yield text + "\n\n"
+                            raw_content = delta["content"]
+                            full += raw_content
+                            filtered = filt.feed(raw_content)
+                            if filtered:
+                                chunk["choices"][0]["delta"]["content"] = filtered
+                                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                            # If filtered is empty, swallow this chunk (was inside <think>)
+                        else:
+                            yield text + "\n\n"
                     except Exception:
-                        pass
+                        yield text + "\n\n"
                 else:
                     yield text + "\n\n"
                 time.sleep(0.005)
     except Exception as e:
         log(f"[STREAM] ✗ Error: {e}")
-    acc["text"] = full
+    acc["text"] = strip_think_blocks(full)
     if full:
-        log(f"[STREAM] ✓ Complete — {len(full)} chars generated")
+        log(f"[STREAM] ✓ Complete — {len(full)} chars raw, {len(acc['text'])} chars after think-strip")
     else:
         log(f"[STREAM] ✗ Empty response from model")
 
@@ -442,9 +506,11 @@ def bg_extract_state(session: dict, response_text: str, recent_msgs: list, url, 
     )
     result = _llm_call(url, headers, model, prompt, 250)
     if result:
-        fresh          = load_session(sid)
-        fresh["current_state"] = result
-        fresh["turns"] = fresh.get("turns", 0) + 1
+        fresh = load_session(sid)
+        fresh["prev_state"]          = fresh.get("current_state", "")
+        fresh["last_char_response"]  = response_text[:300]
+        fresh["current_state"]       = result
+        fresh["turns"]               = fresh.get("turns", 0) + 1
         save_session(fresh)
         log(f"[STATE] ✓ Updated for {sid[:8]}: {result[:80]}…")
     else:
@@ -480,6 +546,15 @@ def normalOperation(req):
     # Derive session ID from raw messages (before stripping), using first substantial content
     sid     = derive_session_id(messages)
     session = load_session(sid)
+
+    # Regenerate/rewind detection: if the last char response isn't in history, roll back state
+    last_char_resp = session.get("last_char_response", "")
+    if last_char_resp:
+        asst_contents = [(m.get("content") or "") for m in messages if m.get("role") == "assistant"]
+        appears = any(last_char_resp[:100] in c for c in asst_contents)
+        if not appears and "prev_state" in session:
+            log(f"[REGEN] Detected regenerate/rewind for {sid[:8]} — rolling back current_state")
+            session["current_state"] = session.get("prev_state", "")
 
     # Refresh trigger — clear state/summary if user message contains "refresh"
     last_user = next((m.get("content","") for m in reversed(messages)             
@@ -626,7 +701,7 @@ def normalOperation(req):
         # Both strategies failed but the model already generated character content.
         # Use it directly instead of discarding it and making a 3rd API call.
         if not tcs and asst_msg:
-            direct_content = (asst_msg.get("content") or "").strip()
+            direct_content = strip_think_blocks((asst_msg.get("content") or "").strip())
             if direct_content:
                 log(f"[DIRECT] Model returned content directly — streaming {len(direct_content)} chars, skipping fake tool + STEP3")
                 chunk_size = 50
