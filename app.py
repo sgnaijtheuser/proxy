@@ -341,9 +341,9 @@ def build_kb_content(session: dict, last_user_msg: str = "") -> str:
         if last_user_msg:
             continuity += f"User's last message: \"{last_user_msg[:150]}\"\n"
         continuity += (
-            "Your next response must flow coherently from your last message. "
+            "Your next response must flow coherently from your last messages. "
             "Pick up the information the user just shared and use it to drive the conversation "
-            "forward your way — you lead, but do not ignore or contradict what the user said."
+            "forward your way — you lead based on your agenda, but do not ignore or contradict what the user or you said."
         )
         parts.append(continuity)
     total = "\n\n".join(parts)
