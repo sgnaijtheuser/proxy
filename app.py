@@ -301,6 +301,8 @@ def view_session(sid: str):
         f"<b>Saved:</b> {s.get('saved_at','–')}"
         f"<h4>Rolling Summary</h4><pre>{s.get('rolling_summary','(none)')}</pre>"
         f"<h4>Current State</h4><pre>{s.get('current_state','(none)')}</pre>"
+        f"<h4>Prev State (rollback target)</h4><pre>{s.get('prev_state','(none)')}</pre>"
+        f"<h4>Last Char Response (regen anchor)</h4><pre>{s.get('last_char_response','(none)')}</pre>"
         f'</body></html>'
     )
 
